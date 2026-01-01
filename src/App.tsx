@@ -135,7 +135,7 @@ const App = () => {
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
       >
-        <div className="p-4 md:p-8 inline-block min-w-full min-h-full">
+        <div className="p-4 md:p-8  inline-block min-w-full min-h-full">
           <VenueMap venue={venue} zoom={zoom} />
         </div>
 

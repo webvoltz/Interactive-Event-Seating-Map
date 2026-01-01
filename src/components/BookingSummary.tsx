@@ -17,9 +17,9 @@ export default function BookingSummary({ venue }: BookingSummaryProps) {
         if (selectedSeats.size === 0) return details;
 
         const tierPrices: Record<number, number> = {
-            1: 50,
-            2: 100,
-            3: 150,
+            1: 7000,
+            2: 3000,
+            3: 1500,
         };
 
         venue.sections.forEach(section => {
@@ -59,21 +59,21 @@ export default function BookingSummary({ venue }: BookingSummaryProps) {
                                 <div className="w-4 h-3 rounded-sm border-2 border-yellow-500 bg-white"></div>
                                 <span className="text-xs text-gray-700">Tier 1</span>
                             </div>
-                            <span className="text-xs font-bold text-gray-900">Rs. 50</span>
+                            <span className="text-xs font-bold text-gray-900">7000$</span>
                         </div>
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <div className="w-4 h-3 rounded-sm border-2 border-gray-500 bg-white"></div>
                                 <span className="text-xs text-gray-700">Tier 2</span>
                             </div>
-                            <span className="text-xs font-bold text-gray-900">Rs. 100</span>
+                            <span className="text-xs font-bold text-gray-900">3000$</span>
                         </div>
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <div className="w-4 h-3 rounded-sm border-2 border-orange-500 bg-white"></div>
                                 <span className="text-xs text-gray-700">Tier 3</span>
                             </div>
-                            <span className="text-xs font-bold text-gray-900">Rs. 150</span>
+                            <span className="text-xs font-bold text-gray-900">1500$</span>
                         </div>
                     </div>
 
@@ -118,7 +118,7 @@ export default function BookingSummary({ venue }: BookingSummaryProps) {
                                         <p className="text-sm font-semibold text-gray-800">{item.label}</p>
                                         <p className="text-xs text-gray-500">Standard Ticket</p>
                                     </div>
-                                    <span className="font-bold text-gray-900">Rs. {item.price}</span>
+                                    <span className="font-bold text-gray-900"> {item.price}</span>
                                 </div>
                             ))}
                         </div>
@@ -128,11 +128,11 @@ export default function BookingSummary({ venue }: BookingSummaryProps) {
                 <div className="p-6 bg-white border-t border-gray-200 mt-auto">
                     <div className="flex justify-between items-center mb-6">
                         <span className="text-gray-600">Total Amount</span>
-                        <span className="text-2xl font-bold text-gray-900">Rs. {total}</span>
+                        <span className="text-2xl font-bold text-gray-900">{total}$</span>
                     </div>
                     <button
                         disabled={selectedSeats.size === 0}
-                        onClick={() => alert(`Redirecting to payment for Rs. ${total}`)}
+                        onClick={() => alert(`Redirecting to payment for ${total}$`)}
                         className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg transition-all transform active:scale-95
                         ${selectedSeats.size > 0
                                 ? "cursor-pointer bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-green-200"

@@ -35,8 +35,8 @@ const Seats = memo(function Seats({ rows }: SeatsProps) {
 
             if (e.key === "ArrowRight") nextSeatIdx++;
             if (e.key === "ArrowLeft") nextSeatIdx--;
-            if (e.key === "ArrowUp") nextRowIdx--;
-            if (e.key === "ArrowDown") nextRowIdx++;
+            if (e.key === "ArrowUp") nextRowIdx++;
+            if (e.key === "ArrowDown") nextRowIdx--;
 
             if (nextRowIdx >= 0 && nextRowIdx < rows.length) {
                 const targetRowSeats = rows[nextRowIdx].seats;
