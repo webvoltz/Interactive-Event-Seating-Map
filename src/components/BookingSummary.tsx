@@ -1,6 +1,6 @@
 import { useVenueStore } from '../store/seatStore';
 import type { Venue } from '../interfaces/venue.interfaces';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 interface BookingSummaryProps {
   venue: Venue;
@@ -9,6 +9,12 @@ interface BookingSummaryProps {
 export default function BookingSummary({ venue }: BookingSummaryProps) {
   const selectedSeats = useVenueStore((s) => s.selectedSeats);
   const clearSelection = useVenueStore((s) => s.clearSelection);
+  const [confirmedTotal, setConfirmedTotal] = useState<number | null>(null);
+
+  const handleClear = () => {
+    setConfirmedTotal(null);
+    clearSelection();
+  };
 
   // Get selected seat details
   const selectedSeatDetails = useMemo(() => {
@@ -105,7 +111,7 @@ export default function BookingSummary({ venue }: BookingSummaryProps) {
             <span>Selected Seats ({selectedSeats.size}/8)</span>
             {selectedSeats.size > 0 && (
               <button
-                onClick={clearSelection}
+                onClick={handleClear}
                 className="cursor-pointer text-red-500 hover:text-red-600 hover:underline"
               >
                 Clear
@@ -140,18 +146,30 @@ export default function BookingSummary({ venue }: BookingSummaryProps) {
             <span className="text-gray-600">Total Amount</span>
             <span className="text-2xl font-bold text-gray-900">{total}$</span>
           </div>
-          <button
-            disabled={selectedSeats.size === 0}
-            onClick={() => alert(`Redirecting to payment for ${total}$`)}
-            className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg transition-all transform active:scale-95
+          {confirmedTotal !== null ? (
+            <div
+              role="status"
+              className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-center"
+            >
+              <p className="font-bold text-emerald-700">
+                Booking confirmed &mdash; {confirmedTotal}$
+              </p>
+              <p className="text-xs text-emerald-600 mt-1">A confirmation has been sent to you.</p>
+            </div>
+          ) : (
+            <button
+              disabled={selectedSeats.size === 0}
+              onClick={() => setConfirmedTotal(total)}
+              className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg transition-all transform active:scale-95
                         ${
                           selectedSeats.size > 0
                             ? 'cursor-pointer bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-green-200'
                             : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                         }`}
-          >
-            Proceed to Pay
-          </button>
+            >
+              Proceed to Pay
+            </button>
+          )}
         </div>
       </div>
     </div>

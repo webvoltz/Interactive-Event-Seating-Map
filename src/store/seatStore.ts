@@ -2,14 +2,23 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { PersistStorage, StorageValue } from 'zustand/middleware';
 
+export const MAX_SELECTABLE_SEATS = 8;
+
+interface Feedback {
+  type: 'info' | 'error';
+  message: string;
+}
+
 interface VenueState {
   activeSectionId: string | null;
   selectedSeats: Set<string>;
   zoom: number;
+  feedback: Feedback | null;
   setActiveSection: (id: string | null) => void;
   setZoom: (zoom: number) => void;
   toggleSeat: (seatId: string) => void;
   clearSelection: () => void;
+  clearFeedback: () => void;
 }
 
 type PersistedVenueState = Pick<VenueState, 'selectedSeats'>;
@@ -44,6 +53,7 @@ export const useVenueStore = create<VenueState>()(
       activeSectionId: null,
       selectedSeats: new Set(),
       zoom: 0.4,
+      feedback: null,
       setActiveSection: (id) => set({ activeSectionId: id }),
       setZoom: (zoom) => set({ zoom }),
 
@@ -53,9 +63,13 @@ export const useVenueStore = create<VenueState>()(
           if (newSelected.has(seatId)) {
             newSelected.delete(seatId);
           } else {
-            if (newSelected.size >= 8) {
-              alert('You can select a maximum of 8 seats.');
-              return state;
+            if (newSelected.size >= MAX_SELECTABLE_SEATS) {
+              return {
+                feedback: {
+                  type: 'error',
+                  message: `You can select a maximum of ${MAX_SELECTABLE_SEATS} seats.`,
+                },
+              };
             }
             newSelected.add(seatId);
           }
@@ -63,6 +77,7 @@ export const useVenueStore = create<VenueState>()(
         }),
 
       clearSelection: () => set({ selectedSeats: new Set() }),
+      clearFeedback: () => set({ feedback: null }),
     }),
     {
       name: 'venue-storage',

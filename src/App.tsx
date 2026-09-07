@@ -1,6 +1,7 @@
 import VenueMap from './components/VenueMap';
 import { useVenue } from './hooks/useVenue';
 import BookingSummary from './components/BookingSummary';
+import Toast from './components/Toast';
 import { useEffect, useState, useRef } from 'react';
 import { useVenueStore } from './store/seatStore';
 
@@ -197,6 +198,8 @@ const App = () => {
           </button>
         </div>
       </main>
+
+      <Toast />
     </div>
   );
 };
