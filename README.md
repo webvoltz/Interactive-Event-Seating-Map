@@ -4,7 +4,93 @@
 [![React Version](https://img.shields.io/badge/react-19.2-149ECA?logo=react&logoColor=white)](https://react.dev)
 [![pnpm](https://img.shields.io/badge/pnpm-package%20manager-F69220?logo=pnpm&logoColor=white)](https://pnpm.io)
 
-A high-performance, interactive seating map for large venues, built to handle 15,000+ seats with smooth panning, zooming, and keyboard navigation.
+A high-performance, interactive seating map for large venues, built to handle **15,000+ seats**
+with smooth panning, zooming, keyboard navigation, and persisted selection — without shipping a
+canvas/WebGL engine or a virtualization library.
+
+---
+
+## 🎯 Problem statement
+
+A venue booking UI has to render every seat in a venue (this project's sample data: 10 sections ×
+30 rows × 50 seats = **15,000 seats**) as an individually selectable, keyboard-navigable element,
+while staying responsive to pan, zoom, and selection changes. Rendering 15,000 live SVG nodes at
+once is the naive approach — and it's slow: every zoom/selection change forces the browser to
+diff, layout, and paint tens of thousands of DOM nodes. This project's core engineering problem is
+keeping the map interactive at that scale using nothing heavier than React + SVG.
+
+## 📸 Screenshot
+
+> _A screenshot/GIF of the running map (pan, zoom, section drill-in, seat selection) belongs here._
+> This environment couldn't produce one without installing a browser automation toolchain outside
+> this repo's dependency scope — run `pnpm dev` locally and drop an image at `docs/screenshot.png`
+> to replace this note.
+
+---
+
+## 🏗️ Architecture & performance
+
+```mermaid
+flowchart TD
+    A[App] --> B["useVenue()<br/>fetch /venue.json"]
+    A --> C[VenueMap]
+    C --> D["Section × 10<br/>(memoized)"]
+    D -->|inactive| E["Collapsed &lt;path&gt; cover shape<br/>(1 SVG node per section)"]
+    D -->|active| F["Seats<br/>(memoized)"]
+    F --> G["~1,500 &lt;rect&gt; seat nodes<br/>(one section's worth)"]
+    A --> H["seatStore (Zustand)<br/>selection · zoom · active section"]
+    H -.->|persist selectedSeats| I[(localStorage)]
+    F -.reads/writes.-> H
+    A --> J[Toast<br/>aria-live feedback]
+    H -.->|feedback| J
+```
+
+### 15,000+ seat rendering: section-level collapsing
+
+The map never mounts all 15,000 seats as DOM nodes at once. [`Section.tsx`](src/components/Section.tsx)
+renders each **inactive** section as a single collapsed `<path>` "cover" shape traced around its
+outer row (one SVG node, regardless of how many seats it contains). Only the **one active** section
+— the one the user clicked into — mounts individual seat `<rect>` nodes via [`Seat.tsx`](src/components/Seat.tsx).
+That caps live, interactive seat nodes at ~1,500 (one section) instead of 15,000, at any given time.
+
+This is a deliberate alternative to two heavier options:
+
+- **Canvas/WebGL**: gives raw rendering throughput but throws away native SVG accessibility
+  (focus, `role`, `aria-*`) and hit-testing — you'd have to reimplement both by hand.
+- **Row/column virtualization** (`react-window`/`react-virtualized`): built for linear lists, not
+  an SVG coordinate space with seats laid out on radial rows. Section-level collapsing matches this
+  venue's natural UX unit (users think in sections, not in a scrollable seat list) and needs no
+  extra dependency.
+
+`Section` and `Seats` are both `React.memo`-wrapped, so panning, zooming, or selecting a seat in
+one section doesn't force every other (already-collapsed) section to re-render or recompute its
+cover path.
+
+### Zustand persistence strategy
+
+Selected seats survive a page refresh via Zustand's `persist` middleware — but `selectedSeats` is
+a `Set<string>`, and `JSON.stringify` can't round-trip a `Set` on its own. [`seatStore.ts`](src/store/seatStore.ts)
+supplies a custom `PersistStorage` that serializes `Set<string> ↔ string[]` on `getItem`/`setItem`,
+so `localStorage` only ever stores an array, while the in-memory store keeps `O(1)` `has()`/`add()`/
+`delete()` lookups for selection toggling. `partialize` scopes persistence to `selectedSeats` only —
+`zoom`, `activeSectionId`, and transient `feedback` state are intentionally not persisted.
+
+See [`docs/engineering-notes.md`](docs/engineering-notes.md) for the tradeoffs behind these
+decisions and where they'd need to change at greater scale.
+
+---
+
+## ♿ Accessibility
+
+- Every seat is a real interactive element: `role="checkbox"`, `aria-checked` reflecting selection,
+  `aria-label` describing row/seat/price/status, and `aria-disabled` for sold/reserved/held seats.
+- **Roving keyboard navigation**: only the active section's seats are focusable (`tabIndex={0}`,
+  or `-1` when unavailable). Arrow keys move focus seat-to-seat — `ArrowLeft`/`ArrowRight` within a
+  row, `ArrowUp`/`ArrowDown` to the nearest seat (by x-position) in the adjacent row — and
+  `Enter`/`Space` toggle selection, matching native checkbox semantics.
+- Feedback that used to be a blocking `alert()` (hitting the 8-seat cap, the payment stub) is now
+  an `aria-live="polite"` [`Toast`](src/components/Toast.tsx) region and inline confirmation state,
+  so screen readers announce it without interrupting keyboard flow.
 
 ---
 
@@ -29,7 +115,7 @@ A high-performance, interactive seating map for large venues, built to handle 15
 
 ### Engineering standards & tooling
 
-- **Testing**: Vitest
+- **Testing**: Vitest + Testing Library (jsdom)
 - **Linting/Formatting**: ESLint (React, hooks, jsx-a11y, type-checked TypeScript rules) + Prettier
 - **Git hooks**: Husky (`pre-commit` → Gitleaks + lint-staged, `commit-msg` → commitlint)
 - **Commit convention**: Conventional Commits, enforced by commitlint
@@ -43,18 +129,22 @@ See [Engineering standards](#-engineering-standards) below for details.
 ## 📂 Repository Structure
 
 ```text
+├── docs/
+│   └── engineering-notes.md  # Tradeoffs and performance bottlenecks
 ├── public/
 │   └── venue.json           # Generated seating data served to the client
 ├── scripts/
 │   └── generateVenue.ts     # Generates public/venue.json
 ├── src/
-│   ├── components/           # VenueMap, Section, Seat, Stage, BookingSummary, ...
+│   ├── components/           # VenueMap, Section, Seat, Stage, BookingSummary, Toast, ...
 │   ├── hooks/
 │   │   └── useVenue.ts       # Fetches and exposes public/venue.json
 │   ├── store/
-│   │   └── seatStore.ts      # Zustand store (zoom, active section, selected seats)
+│   │   └── seatStore.ts      # Zustand store (zoom, active section, selected seats, feedback)
 │   ├── interfaces/
 │   │   └── venue.interfaces.ts
+│   ├── test/
+│   │   └── setup.ts          # Vitest + Testing Library setup
 │   ├── App.tsx
 │   └── main.tsx
 ├── .github/workflows/ci.yml  # CI pipeline
@@ -118,6 +208,11 @@ There are **no environment variables** — seating data is served from the stati
 ```bash
 pnpm test
 ```
+
+Covers seat selection/deselection, the 8-seat selection cap, clearing the selection, the
+persisted-seats `localStorage` round trip, and keyboard navigation (arrow keys, Enter/Space,
+skipping unavailable seats) — see [`src/store/seatStore.test.ts`](src/store/seatStore.test.ts) and
+[`src/components/Seat.test.tsx`](src/components/Seat.test.tsx).
 
 ---
 
