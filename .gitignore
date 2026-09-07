@@ -11,11 +11,23 @@ node_modules
 dist
 dist-ssr
 *.local
+coverage
+.vite/
+.npm/
+
+.env
+.env.*
+!.env.example
+
+src/generated/
+public/generated/
+*.generated.*
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
+.claude/
 .DS_Store
 *.suo
 *.ntvs*

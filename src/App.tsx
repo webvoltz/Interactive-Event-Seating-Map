@@ -1,11 +1,11 @@
-import VenueMap from "./components/VenueMap"
-import { useVenue } from "./hooks/useVenue"
-import BookingSummary from "./components/BookingSummary"
-import { useEffect, useState, useRef } from "react"
-import { useVenueStore } from "./store/seatStore"
+import VenueMap from './components/VenueMap';
+import { useVenue } from './hooks/useVenue';
+import BookingSummary from './components/BookingSummary';
+import { useEffect, useState, useRef } from 'react';
+import { useVenueStore } from './store/seatStore';
 
 const App = () => {
-  const { venue, error, loading } = useVenue()
+  const { venue, error, loading } = useVenue();
   const zoom = useVenueStore((s) => s.zoom);
   const setZoom = useVenueStore((s) => s.setZoom);
   const selectedSeatsCount = useVenueStore((s) => s.selectedSeats.size);
@@ -28,7 +28,7 @@ const App = () => {
 
         for (const section of venue.sections) {
           for (const row of section.rows) {
-            if (row.seats.some(s => s.id === firstSeatId)) {
+            if (row.seats.some((s) => s.id === firstSeatId)) {
               sectionToOpen = section.id;
               break;
             }
@@ -80,13 +80,14 @@ const App = () => {
     setIsDragging(false);
   };
 
-  if (loading) return (
-    <div className="flex items-center justify-center min-h-screen bg-slate-50">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500"></div>
-    </div>
-  );
-  if (error) return <div className="text-red-500 text-center p-4">Error: {error}</div>
-  if (!venue) return <div className="text-center p-4">No venue data</div>
+  if (loading)
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500"></div>
+      </div>
+    );
+  if (error) return <div className="text-red-500 text-center p-4">Error: {error}</div>;
+  if (!venue) return <div className="text-center p-4">No venue data</div>;
 
   return (
     <div className="flex flex-col md:flex-row h-screen bg-gray-100 overflow-hidden">
@@ -95,24 +96,36 @@ const App = () => {
         className="md:hidden fixed top-4 left-4 z-[60] bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg font-bold text-sm flex items-center gap-2"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+            d="M4 6h16M4 12h16M4 18h16"
+          ></path>
         </svg>
         Booking ({selectedSeatsCount})
       </button>
 
-      <div className={`
+      <div
+        className={`
         fixed md:relative inset-0 md:inset-auto z-50 md:z-auto
         transform transition-transform duration-300 ease-in-out
         ${showSidebar ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         md:w-[400px] w-full
-      `}>
+      `}
+      >
         <div className="relative h-full">
           <button
             onClick={() => setShowSidebar(false)}
             className="md:hidden absolute top-4 right-4 z-10 bg-white rounded-full p-2 shadow-lg"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M6 18L18 6M6 6l12 12"
+              ></path>
             </svg>
           </button>
           <BookingSummary venue={venue} />
@@ -120,12 +133,15 @@ const App = () => {
       </div>
 
       {showSidebar && (
-        <div
+        <button
+          type="button"
+          aria-label="Close menu"
           className="md:hidden fixed inset-0 bg-black/50 z-40"
           onClick={() => setShowSidebar(false)}
         />
       )}
 
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- mouse-drag panning is a progressive enhancement over native scroll; seats remain keyboard-navigable */}
       <main
         ref={mapContainerRef}
         className="flex-1 relative h-full bg-gray-200/50 overflow-auto select-none"
@@ -145,19 +161,44 @@ const App = () => {
             className="cursor-pointer bg-white hover:bg-gray-50 text-gray-700 p-2 md:p-3 rounded-full shadow-lg border border-gray-200 transition-colors"
             title="Zoom In"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
           </button>
           <button
             onClick={handleZoomOut}
             className="cursor-pointer bg-white hover:bg-gray-50 text-gray-700 p-2 md:p-3 rounded-full shadow-lg border border-gray-200 transition-colors"
             title="Zoom Out"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
           </button>
         </div>
       </main>
     </div>
-  )
-}
+  );
+};
 
-export default App
+export default App;

@@ -1,31 +1,193 @@
 # Event Seating Map
 
-A high-performance, interactive seating map for large venues. Built to handle 15,000+ seats with smooth performance and a premium user experience.
+[![Node Version](https://img.shields.io/badge/node-%3E%3D24%20%3C25-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![React Version](https://img.shields.io/badge/react-19.2-149ECA?logo=react&logoColor=white)](https://react.dev)
+[![pnpm](https://img.shields.io/badge/pnpm-package%20manager-F69220?logo=pnpm&logoColor=white)](https://pnpm.io)
 
-##Quick Start
+A high-performance, interactive seating map for large venues, built to handle 15,000+ seats with smooth panning, zooming, and keyboard navigation.
 
-Get the project running in seconds:
+---
 
-1. **Install dependencies:**
+## 🚀 Features
+
+- **Large-scale rendering**: Thousands of seats render smoothly using SVG optimization.
+- **Map navigation**: Click-and-drag panning with smart zoom in/out controls.
+- **Accessibility**: Full arrow-key navigation between seats, keyboard-selectable seats (`role="checkbox"`).
+- **Persisted selection**: Selected seats survive a page refresh (Zustand + `localStorage`).
+- **Responsive layout**: A collapsible booking sidebar on mobile, side-by-side on desktop.
+
+---
+
+## 🛠️ Tech Stack
+
+### Application
+
+- **Core**: React 19, TypeScript
+- **State Management**: Zustand (with persisted seat selection)
+- **Styling**: Tailwind CSS
+- **Build Tool**: Vite
+
+### Engineering standards & tooling
+
+- **Testing**: Vitest
+- **Linting/Formatting**: ESLint (React, hooks, jsx-a11y, type-checked TypeScript rules) + Prettier
+- **Git hooks**: Husky (`pre-commit` → Gitleaks + lint-staged, `commit-msg` → commitlint)
+- **Commit convention**: Conventional Commits, enforced by commitlint
+- **Secret scanning**: Gitleaks (local pre-commit + full-history scan in CI)
+- **CI**: GitHub Actions (`secret-scan`, `quality`, `commitlint`, `test`, `build`)
+
+See [Engineering standards](#-engineering-standards) below for details.
+
+---
+
+## 📂 Repository Structure
+
+```text
+├── public/
+│   └── venue.json           # Generated seating data served to the client
+├── scripts/
+│   └── generateVenue.ts     # Generates public/venue.json
+├── src/
+│   ├── components/           # VenueMap, Section, Seat, Stage, BookingSummary, ...
+│   ├── hooks/
+│   │   └── useVenue.ts       # Fetches and exposes public/venue.json
+│   ├── store/
+│   │   └── seatStore.ts      # Zustand store (zoom, active section, selected seats)
+│   ├── interfaces/
+│   │   └── venue.interfaces.ts
+│   ├── App.tsx
+│   └── main.tsx
+├── .github/workflows/ci.yml  # CI pipeline
+├── .husky/                   # pre-commit / commit-msg hooks
+└── README.md
+```
+
+---
+
+## ⚙️ Getting Started
+
+### Prerequisites
+
+- **Node.js** `>=24 <25` (see `engines` in `package.json`)
+- **pnpm** (this project uses pnpm, not npm/yarn — a `pnpm-lock.yaml` is committed)
+- **Gitleaks v8.30.1** on `PATH` — required by the pre-commit hook (see [Secret scanning](#secret-scanning-gitleaks))
+
+### Installation & Setup
+
+1. **Clone the repository**
+
+   ```bash
+   git clone git@github.com:webvoltz/Interactive-Event-Seating-Map.git
+   cd Interactive-Event-Seating-Map
+   ```
+
+2. **Install dependencies**
+
+   ```bash
    pnpm install
+   ```
 
-2. **Generate venue data (Optional):**
-   npx ts-node scripts/generateVenue.ts
+3. **Install the Husky git hooks** (one-time, after cloning)
 
-3. **Start development server:**
-   pnpm dev
+   ```bash
+   pnpm run prepare
+   ```
 
-## Key Features
+### Running Locally
 
-- Handles thousands of seats smoothly using SVG optimization.
-- Intuitive click-and-drag panning and smart zoom.
-- Full support for arrow-key navigation between seats.
-- Remembers your selected seats even after a page refresh.
-- Works beautifully on both desktop and mobile devices.
+```bash
+pnpm dev
+```
 
-## Tech Stack
+The app expects seat data at `public/venue.json`; a sample file is already checked in. Regenerate it any time with:
 
-- **React + TypeScript** – Core logic and type safety.
-- **Tailwind CSS** – Modern, responsive styling.
-- **Zustand** – Lightweight and fast state management.
-- **Vite** – Lightning-fast build tool.
+```bash
+pnpm run generate:venue
+```
+
+---
+
+## 🔒 Environment Variables
+
+There are **no environment variables** — seating data is served from the static `public/venue.json`, not an API. If a real backend is introduced later, add a Zod-validated env module rather than reading `import.meta.env` directly in components.
+
+---
+
+## 🧪 Running Tests
+
+```bash
+pnpm test
+```
+
+---
+
+## 📐 Engineering standards
+
+This project follows the React engineering standards.
+
+### Code quality
+
+- **ESLint** (`eslint.config.js`) lints `.js/.jsx/.ts/.tsx` with `eslint-plugin-react`,
+  `eslint-plugin-react-hooks`, `eslint-plugin-jsx-a11y`, and type-checked
+  `typescript-eslint` rules (`no-floating-promises`, `no-misused-promises`, `no-unsafe-*`,
+  `consistent-type-imports`). `pnpm run lint` fails on any warning (`--max-warnings=0`).
+- **Prettier** (`.prettierrc.json`) is the single source of formatting truth. Run
+  `pnpm run format`, or let the pre-commit hook format staged files for you.
+- **TypeScript** runs in strict mode plus `noUncheckedIndexedAccess` and
+  `exactOptionalPropertyTypes` — guard indexed access explicitly instead of asserting it away.
+- `pnpm run quality` runs format-check, lint, and typecheck together — this is what CI runs too.
+
+### Git hooks (Husky)
+
+Installed via `pnpm run prepare`. Two hooks live in `.husky/`:
+
+- **`pre-commit`** — scans the staged diff with Gitleaks, then runs `lint-staged`
+  (ESLint `--fix` + Prettier) on the files you're committing.
+- **`commit-msg`** — runs `commitlint` against your commit message.
+
+Don't bypass either hook with `--no-verify` to get past a genuine failure — fix the issue instead.
+
+### Commit messages
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/), checked by `commitlint.config.cjs`:
+
+- Header (first line) must be ≤ 100 characters.
+- `type` must be one of: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`.
+
+Example: `fix: prevent seat selection past the 8-seat limit`
+
+### Secret scanning (Gitleaks)
+
+The pre-commit hook requires the `gitleaks` binary on `PATH` and **fails closed** if it's missing:
+
+1. Download [Gitleaks v8.30.1](https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1) for your platform.
+2. Verify it per your usual tooling-verification process and put the `gitleaks` executable on `PATH`.
+3. Confirm `gitleaks version` works.
+
+GitHub Actions independently re-scans full repository history with the same pinned version, so a bypassed local hook is still caught in CI.
+
+**False positives:** investigate every finding first. Only add a narrowly scoped exception in `.gitleaks.toml` after a real secret has been ruled out, with a comment explaining why — never a blanket allowlist — and re-run the scan afterward.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request:
+
+| Job           | What it does                                        |
+| ------------- | --------------------------------------------------- |
+| `secret-scan` | Gitleaks over full repository history.              |
+| `quality`     | `pnpm run quality` (format check, lint, typecheck). |
+| `commitlint`  | Lints the commit range being pushed/merged.         |
+| `test`        | `pnpm test`.                                        |
+| `build`       | `pnpm run build`.                                   |
+
+All jobs must pass before merging.
+
+---
+
+## 🤝 Contributing
+
+1. Fork or branch from `main`.
+2. Create your feature branch (`git checkout -b feature/amazing-feature`).
+3. Commit your changes following the [commit convention](#commit-messages) (`git commit -m 'feat: add amazing feature'`).
+4. Run `pnpm run quality && pnpm test && pnpm run build` before pushing.
+5. Push to the branch and open a pull request.

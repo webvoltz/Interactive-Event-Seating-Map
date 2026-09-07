@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+set -eu
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "gitleaks 8.30.x is required before committing." >&2
+  exit 1
+fi
+
+git diff --cached --no-ext-diff --unified=0 | gitleaks stdin --config .gitleaks.toml --redact --no-banner
+npx lint-staged
