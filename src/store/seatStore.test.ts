@@ -5,6 +5,9 @@ const resetStore = () => {
   useVenueStore.setState({
     activeSectionId: null,
     selectedSeats: new Set(),
+    soldSeats: new Set(),
+    bookings: [],
+    viewingBookingId: null,
     zoom: 0.4,
     feedback: null,
   });
@@ -48,6 +51,64 @@ describe('seatStore', () => {
     expect(useVenueStore.getState().selectedSeats.size).toBe(0);
   });
 
+  it('confirmPurchase moves selected seats into soldSeats and empties the cart', () => {
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    useVenueStore.getState().toggleSeat('SEAT-2');
+    useVenueStore.getState().confirmPurchase(6000);
+
+    expect(useVenueStore.getState().selectedSeats.size).toBe(0);
+    expect(useVenueStore.getState().soldSeats.has('SEAT-1')).toBe(true);
+    expect(useVenueStore.getState().soldSeats.has('SEAT-2')).toBe(true);
+  });
+
+  it('confirmPurchase accumulates across multiple purchases rather than overwriting', () => {
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    useVenueStore.getState().confirmPurchase(3000);
+
+    useVenueStore.getState().toggleSeat('SEAT-2');
+    useVenueStore.getState().confirmPurchase(3000);
+
+    expect(useVenueStore.getState().soldSeats.has('SEAT-1')).toBe(true);
+    expect(useVenueStore.getState().soldSeats.has('SEAT-2')).toBe(true);
+  });
+
+  it('confirmPurchase records a Booking grouping the just-bought seats and views it', () => {
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    useVenueStore.getState().toggleSeat('SEAT-2');
+    useVenueStore.getState().confirmPurchase(6000);
+
+    const { bookings, viewingBookingId } = useVenueStore.getState();
+    expect(bookings).toHaveLength(1);
+    expect(bookings[0]?.seatIds.sort()).toEqual(['SEAT-1', 'SEAT-2']);
+    expect(bookings[0]?.total).toBe(6000);
+    expect(viewingBookingId).toBe(bookings[0]?.id);
+  });
+
+  it('confirmPurchase prepends new bookings so the newest is first', () => {
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    useVenueStore.getState().confirmPurchase(3000);
+    useVenueStore.getState().toggleSeat('SEAT-2');
+    useVenueStore.getState().confirmPurchase(3000);
+
+    const { bookings } = useVenueStore.getState();
+    expect(bookings).toHaveLength(2);
+    expect(bookings[0]?.seatIds).toEqual(['SEAT-2']);
+    expect(bookings[1]?.seatIds).toEqual(['SEAT-1']);
+  });
+
+  it('toggleSeat clears any booking currently being viewed', () => {
+    useVenueStore.getState().viewBooking('BK-1');
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    expect(useVenueStore.getState().viewingBookingId).toBeNull();
+  });
+
+  it('viewBooking and clearViewingBooking control which booking is highlighted', () => {
+    useVenueStore.getState().viewBooking('BK-1');
+    expect(useVenueStore.getState().viewingBookingId).toBe('BK-1');
+    useVenueStore.getState().clearViewingBooking();
+    expect(useVenueStore.getState().viewingBookingId).toBeNull();
+  });
+
   it('persists and restores selected seats across a save/reload cycle', async () => {
     useVenueStore.getState().toggleSeat('SEAT-1');
     useVenueStore.getState().toggleSeat('SEAT-2');
@@ -58,7 +119,9 @@ describe('seatStore', () => {
     const raw = localStorage.getItem('venue-storage');
     expect(raw).not.toBeNull();
 
-    const parsed = JSON.parse(raw as string) as { state: { selectedSeats: string[] } };
+    const parsed = JSON.parse(raw as string) as {
+      state: { selectedSeats: string[]; soldSeats: string[] };
+    };
     expect(parsed.state.selectedSeats.sort()).toEqual(['SEAT-1', 'SEAT-2']);
 
     // Simulate a fresh load: reset in-memory state, then rehydrate from the same storage key.
@@ -68,5 +131,43 @@ describe('seatStore', () => {
 
     expect(useVenueStore.getState().selectedSeats.has('SEAT-1')).toBe(true);
     expect(useVenueStore.getState().selectedSeats.has('SEAT-2')).toBe(true);
+  });
+
+  it('persists sold seats across a save/reload cycle, surviving a fresh selection', async () => {
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    useVenueStore.getState().confirmPurchase(7000);
+
+    await Promise.resolve();
+
+    const raw = localStorage.getItem('venue-storage');
+    const parsed = JSON.parse(raw as string) as { state: { soldSeats: string[] } };
+    expect(parsed.state.soldSeats).toEqual(['SEAT-1']);
+
+    // Simulate a fresh load rehydrating from that same storage key.
+    useVenueStore.setState({ soldSeats: new Set() });
+    useVenueStore.setState({ soldSeats: new Set(parsed.state.soldSeats) });
+
+    expect(useVenueStore.getState().soldSeats.has('SEAT-1')).toBe(true);
+  });
+
+  it('persists booking history across a save/reload cycle', async () => {
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    useVenueStore.getState().confirmPurchase(7000);
+
+    await Promise.resolve();
+
+    const raw = localStorage.getItem('venue-storage');
+    const parsed = JSON.parse(raw as string) as {
+      state: { bookings: { id: string; seatIds: string[]; total: number; createdAt: number }[] };
+    };
+    expect(parsed.state.bookings).toHaveLength(1);
+    expect(parsed.state.bookings[0]?.seatIds).toEqual(['SEAT-1']);
+    expect(parsed.state.bookings[0]?.total).toBe(7000);
+
+    // Simulate a fresh load rehydrating from that same storage key.
+    useVenueStore.setState({ bookings: [] });
+    useVenueStore.setState({ bookings: parsed.state.bookings });
+
+    expect(useVenueStore.getState().bookings).toHaveLength(1);
   });
 });

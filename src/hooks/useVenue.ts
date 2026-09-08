@@ -1,10 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Venue } from '../interfaces/venue.interfaces';
 
 export function useVenue() {
   const [venue, setVenue] = useState<Venue | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
+
+  const refetch = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    setRetryToken((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -28,7 +35,7 @@ export function useVenue() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryToken]);
 
-  return { venue, loading, error };
+  return { venue, loading, error, refetch };
 }

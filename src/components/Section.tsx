@@ -1,9 +1,10 @@
 import { memo, useMemo, useEffect } from 'react';
 import { useVenueStore } from '../store/seatStore';
 import type { Section } from '../interfaces/venue.interfaces';
+import type { VenueContentBounds } from '../utils/venueBounds';
 import Seats from './Seat';
 
-function Section({ section }: { section: Section }) {
+function Section({ section, bounds }: { section: Section; bounds: VenueContentBounds }) {
   const activeSectionId = useVenueStore((s) => s.activeSectionId);
   const setZoom = useVenueStore((s) => s.setZoom);
   const setActiveSection = useVenueStore((s) => s.setActiveSection);
@@ -32,8 +33,12 @@ function Section({ section }: { section: Section }) {
         const mapContainer = document.querySelector('main.overflow-auto');
         if (mapContainer) {
           const currentZoom = useVenueStore.getState().zoom;
-          const scrollX = centerX * currentZoom - mapContainer.clientWidth / 2;
-          const scrollY = centerY * currentZoom - mapContainer.clientHeight / 2;
+          // The SVG's own pixel origin is the viewBox's top-left corner
+          // (bounds.minX/minY, cropped to the venue's content - see
+          // VenueMap.tsx), not absolute coordinate (0, 0), so that offset
+          // has to be subtracted before scaling by zoom.
+          const scrollX = (centerX - bounds.minX) * currentZoom - mapContainer.clientWidth / 2;
+          const scrollY = (centerY - bounds.minY) * currentZoom - mapContainer.clientHeight / 2;
 
           mapContainer.scrollTo({
             left: Math.max(0, scrollX),
@@ -44,7 +49,7 @@ function Section({ section }: { section: Section }) {
       }, 150);
       return () => clearTimeout(timer);
     }
-  }, [isActive, section]);
+  }, [isActive, section, bounds]);
 
   const coverPath = useMemo(() => {
     const firstRow = section.rows[0];
@@ -104,19 +109,35 @@ function Section({ section }: { section: Section }) {
     };
   }, [section]);
 
+  const toggleActive = () => {
+    const newActiveId = isActive ? null : section.id;
+    setActiveSection(newActiveId);
+    if (newActiveId) setZoom(8);
+  };
+
   return (
     <g
       onClick={(e) => {
         e.stopPropagation();
-        const newActiveId = isActive ? null : section.id;
-        setActiveSection(newActiveId);
-        if (newActiveId) setZoom(1.5);
+        toggleActive();
       }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleActive();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      aria-expanded={isActive}
+      aria-label={`Section ${section.label}${isActive ? ', expanded' : ''}`}
       style={{ cursor: 'pointer' }}
+      className="group/section focus:outline-none"
       transform={`translate(${explodeOffset.x} ${explodeOffset.y})`}
     >
       {isActive ? (
-        <>
+        <g key="active" className="section-activate">
           <path
             d={coverPath}
             fill="white"
@@ -126,9 +147,9 @@ function Section({ section }: { section: Section }) {
             style={{ cursor: 'default' }}
           />
           <Seats rows={section.rows} />
-        </>
+        </g>
       ) : (
-        <g className="hover:opacity-80 transition-opacity">
+        <g key="collapsed" className="section-activate hover:opacity-80 transition-opacity">
           <path
             d={coverPath}
             fill="#e2e8f0"
@@ -136,7 +157,13 @@ function Section({ section }: { section: Section }) {
             strokeLinejoin="round"
             className="drop-shadow-sm"
           />
-          <path d={coverPath} fill="none" stroke="#94a3b8" strokeLinejoin="round" />
+          <path
+            d={coverPath}
+            fill="none"
+            stroke="#94a3b8"
+            strokeLinejoin="round"
+            className="group-focus/section:stroke-blue-600 group-focus/section:stroke-[6px]"
+          />
 
           <text
             x={labelPos.x}

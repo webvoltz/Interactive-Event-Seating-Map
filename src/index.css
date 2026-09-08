@@ -1,1 +1,103 @@
 @import 'tailwindcss';
+
+@theme {
+  /* Seat status */
+  --color-seat-available: #ffffff;
+  --color-seat-available-stroke: #059669;
+  --color-seat-selected: #10b981;
+  --color-seat-sold: #d1d5db;
+  --color-seat-reserved: #fbbf24;
+  --color-seat-held: #f87171;
+
+  /* Price tiers (used both as SVG stroke colors and legend swatch borders) */
+  --color-tier-1: #eab308;
+  --color-tier-2: #6b7280;
+  --color-tier-3: #f97316;
+
+  /* Brand header gradient */
+  --color-brand-from: #60a5fa;
+  --color-brand-to: #818cf8;
+
+  /* Ring shown on a sold seat while its booking is open in Booking History */
+  --color-booking-highlight: #7c3aed;
+}
+
+/* Plays once when a seat's rect gains this class (i.e. the instant it
+   becomes selected) - not a looping blink, since the class stays applied
+   for as long as the seat stays selected and CSS animations don't repeat
+   on their own without `infinite`. */
+@keyframes seat-select-pop {
+  0% {
+    transform: scale(0.75);
+    opacity: 0.35;
+  }
+  55% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.seat-select-pop {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: seat-select-pop 300ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seat-select-pop {
+    animation: none;
+  }
+}
+
+/* Plays once whenever a Section's active/collapsed content mounts (opening
+   or closing it) - React swaps the two branches instantly with no
+   transition of its own, so without this the seats (or the collapsed cover
+   shape) would just snap into view. */
+@keyframes section-activate {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.section-activate {
+  animation: section-activate 250ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-activate {
+    animation: none;
+  }
+}
+
+/* Continuous (not one-shot) - this is a standing "you're looking at this
+   booking's seats" indicator for as long as Booking History has one open,
+   not a celebratory flash, so it loops for the whole time rather than
+   playing once. */
+@keyframes seat-highlight-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 0 color-mix(in srgb, var(--color-booking-highlight) 70%, transparent));
+  }
+  50% {
+    filter: drop-shadow(
+      0 0 0.6px color-mix(in srgb, var(--color-booking-highlight) 70%, transparent)
+    );
+  }
+}
+
+.seat-highlight-pulse {
+  animation: seat-highlight-pulse 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seat-highlight-pulse {
+    animation: none;
+  }
+}

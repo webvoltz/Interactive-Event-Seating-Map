@@ -31,6 +31,7 @@ const resetStore = () => {
   useVenueStore.setState({
     activeSectionId: null,
     selectedSeats: new Set(),
+    soldSeats: new Set(),
     zoom: 0.4,
     feedback: null,
   });
@@ -92,5 +93,16 @@ describe('Seats keyboard navigation and selection', () => {
     fireEvent.click(seatB3);
     expect(useVenueStore.getState().selectedSeats.has('B3')).toBe(false);
     expect(seatB3.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('treats a seat in soldSeats as unavailable even if its data status is available', () => {
+    useVenueStore.setState({ soldSeats: new Set(['A2']) });
+    renderSeats();
+    const seatA2 = document.getElementById('seat-A2')!;
+
+    fireEvent.click(seatA2);
+    expect(useVenueStore.getState().selectedSeats.has('A2')).toBe(false);
+    expect(seatA2.getAttribute('tabindex')).toBe('-1');
+    expect(seatA2.getAttribute('aria-disabled')).toBe('true');
   });
 });

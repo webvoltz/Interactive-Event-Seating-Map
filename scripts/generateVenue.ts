@@ -10,6 +10,32 @@ const SEATS_PER_ROW = 50;
 const CENTER_X = MAP_WIDTH / 2;
 const CENTER_Y = MAP_HEIGHT / 2;
 
+// Seeded PRNG (mulberry32) rather than Math.random(), so regenerating the
+// venue produces the same demo data every time instead of a different
+// scatter of sold/reserved/held seats on every run.
+function mulberry32(seed: number) {
+  let state = seed;
+  return () => {
+    state |= 0;
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const random = mulberry32(20260908);
+
+// Realistic-looking demo data: most seats available, with a believable mix
+// of sold/reserved/held scattered in, so all four seat statuses are actually
+// visible without hand-editing venue.json.
+function pickStatus(): 'available' | 'sold' | 'reserved' | 'held' {
+  const r = random();
+  if (r < 0.7) return 'available';
+  if (r < 0.85) return 'sold';
+  if (r < 0.95) return 'reserved';
+  return 'held';
+}
+
 let seatCounter = 1;
 
 const sections = Array.from({ length: SECTIONS }, (_, sectionIndex) => {
@@ -37,7 +63,7 @@ const sections = Array.from({ length: SECTIONS }, (_, sectionIndex) => {
             x,
             y,
             priceTier: rowIndex < 5 ? 1 : rowIndex < 15 ? 2 : 3,
-            status: 'available',
+            status: pickStatus(),
           };
         }),
       };
@@ -47,7 +73,7 @@ const sections = Array.from({ length: SECTIONS }, (_, sectionIndex) => {
 
 const venue = {
   venueId: 'mega-arena',
-  name: 'Metropolis Mega Arena',
+  name: 'Grand Horizon Arena',
   map: { width: MAP_WIDTH, height: MAP_HEIGHT },
   sections,
 };

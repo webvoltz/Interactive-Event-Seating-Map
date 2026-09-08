@@ -5,7 +5,7 @@
 [![pnpm](https://img.shields.io/badge/pnpm-package%20manager-F69220?logo=pnpm&logoColor=white)](https://pnpm.io)
 
 A high-performance, interactive seating map for large venues, built to handle **15,000+ seats**
-with smooth panning, zooming, keyboard navigation, and persisted selection — without shipping a
+with smooth panning, zooming, keyboard navigation, and persisted selection - without shipping a
 canvas/WebGL engine or a virtualization library.
 
 ---
@@ -15,16 +15,26 @@ canvas/WebGL engine or a virtualization library.
 A venue booking UI has to render every seat in a venue (this project's sample data: 10 sections ×
 30 rows × 50 seats = **15,000 seats**) as an individually selectable, keyboard-navigable element,
 while staying responsive to pan, zoom, and selection changes. Rendering 15,000 live SVG nodes at
-once is the naive approach — and it's slow: every zoom/selection change forces the browser to
+once is the naive approach - and it's slow: every zoom/selection change forces the browser to
 diff, layout, and paint tens of thousands of DOM nodes. This project's core engineering problem is
 keeping the map interactive at that scale using nothing heavier than React + SVG.
 
-## 📸 Screenshot
+## 📸 Screenshots
 
-> _A screenshot/GIF of the running map (pan, zoom, section drill-in, seat selection) belongs here._
-> This environment couldn't produce one without installing a browser automation toolchain outside
-> this repo's dependency scope — run `pnpm dev` locally and drop an image at `docs/screenshot.png`
-> to replace this note.
+**Overview** - the full venue map with all 10 sections collapsed, and the Booking History sidebar
+in its default state.
+
+![Venue overview](docs/screenshots/overview.png)
+
+**Section drill-in & seat selection** - every seat status (available, selected, sold, reserved,
+held) visible at once, with the live selected-seats list and running total in the sidebar.
+
+![Seat selection](docs/screenshots/seat-selection.png)
+
+**Booking History** - completed purchases are grouped and listed; clicking one highlights its
+exact seats back on the map.
+
+![Booking history with a highlighted past booking](docs/screenshots/booking-history.png)
 
 ---
 
@@ -49,14 +59,15 @@ flowchart TD
 
 The map never mounts all 15,000 seats as DOM nodes at once. [`Section.tsx`](src/components/Section.tsx)
 renders each **inactive** section as a single collapsed `<path>` "cover" shape traced around its
-outer row (one SVG node, regardless of how many seats it contains). Only the **one active** section
-— the one the user clicked into — mounts individual seat `<rect>` nodes via [`Seat.tsx`](src/components/Seat.tsx).
-That caps live, interactive seat nodes at ~1,500 (one section) instead of 15,000, at any given time.
+outer row (one SVG node, regardless of how many seats it contains). Only the **one active**
+section (the one the user clicked into) mounts individual seat `<rect>` nodes via
+[`Seat.tsx`](src/components/Seat.tsx). That caps live, interactive seat nodes at ~1,500 (one
+section) instead of 15,000, at any given time.
 
 This is a deliberate alternative to two heavier options:
 
 - **Canvas/WebGL**: gives raw rendering throughput but throws away native SVG accessibility
-  (focus, `role`, `aria-*`) and hit-testing — you'd have to reimplement both by hand.
+  (focus, `role`, `aria-*`) and hit-testing - you'd have to reimplement both by hand.
 - **Row/column virtualization** (`react-window`/`react-virtualized`): built for linear lists, not
   an SVG coordinate space with seats laid out on radial rows. Section-level collapsing matches this
   venue's natural UX unit (users think in sections, not in a scrollable seat list) and needs no
@@ -68,11 +79,11 @@ cover path.
 
 ### Zustand persistence strategy
 
-Selected seats survive a page refresh via Zustand's `persist` middleware — but `selectedSeats` is
+Selected seats survive a page refresh via Zustand's `persist` middleware - but `selectedSeats` is
 a `Set<string>`, and `JSON.stringify` can't round-trip a `Set` on its own. [`seatStore.ts`](src/store/seatStore.ts)
 supplies a custom `PersistStorage` that serializes `Set<string> ↔ string[]` on `getItem`/`setItem`,
 so `localStorage` only ever stores an array, while the in-memory store keeps `O(1)` `has()`/`add()`/
-`delete()` lookups for selection toggling. `partialize` scopes persistence to `selectedSeats` only —
+`delete()` lookups for selection toggling. `partialize` scopes persistence to `selectedSeats` only -
 `zoom`, `activeSectionId`, and transient `feedback` state are intentionally not persisted.
 
 See [`docs/engineering-notes.md`](docs/engineering-notes.md) for the tradeoffs behind these
@@ -85,8 +96,8 @@ decisions and where they'd need to change at greater scale.
 - Every seat is a real interactive element: `role="checkbox"`, `aria-checked` reflecting selection,
   `aria-label` describing row/seat/price/status, and `aria-disabled` for sold/reserved/held seats.
 - **Roving keyboard navigation**: only the active section's seats are focusable (`tabIndex={0}`,
-  or `-1` when unavailable). Arrow keys move focus seat-to-seat — `ArrowLeft`/`ArrowRight` within a
-  row, `ArrowUp`/`ArrowDown` to the nearest seat (by x-position) in the adjacent row — and
+  or `-1` when unavailable). Arrow keys move focus seat-to-seat - `ArrowLeft`/`ArrowRight` within a
+  row, `ArrowUp`/`ArrowDown` to the nearest seat (by x-position) in the adjacent row - and
   `Enter`/`Space` toggle selection, matching native checkbox semantics.
 - Feedback that used to be a blocking `alert()` (hitting the 8-seat cap, the payment stub) is now
   an `aria-live="polite"` [`Toast`](src/components/Toast.tsx) region and inline confirmation state,
@@ -130,7 +141,8 @@ See [Engineering standards](#-engineering-standards) below for details.
 
 ```text
 ├── docs/
-│   └── engineering-notes.md  # Tradeoffs and performance bottlenecks
+│   ├── engineering-notes.md  # Tradeoffs and performance bottlenecks
+│   └── screenshots/          # README screenshots
 ├── public/
 │   └── venue.json           # Generated seating data served to the client
 ├── scripts/
@@ -159,8 +171,8 @@ See [Engineering standards](#-engineering-standards) below for details.
 ### Prerequisites
 
 - **Node.js** `>=24 <25` (see `engines` in `package.json`)
-- **pnpm** (this project uses pnpm, not npm/yarn — a `pnpm-lock.yaml` is committed)
-- **Gitleaks v8.30.1** on `PATH` — required by the pre-commit hook (see [Secret scanning](#secret-scanning-gitleaks))
+- **pnpm** (this project uses pnpm, not npm/yarn - a `pnpm-lock.yaml` is committed)
+- **Gitleaks v8.30.1** on `PATH` - required by the pre-commit hook (see [Secret scanning](#secret-scanning-gitleaks))
 
 ### Installation & Setup
 
@@ -199,7 +211,7 @@ pnpm run generate:venue
 
 ## 🔒 Environment Variables
 
-There are **no environment variables** — seating data is served from the static `public/venue.json`, not an API. If a real backend is introduced later, add a Zod-validated env module rather than reading `import.meta.env` directly in components.
+There are **no environment variables** - seating data is served from the static `public/venue.json`, not an API. If a real backend is introduced later, add a Zod-validated env module rather than reading `import.meta.env` directly in components.
 
 ---
 
@@ -211,7 +223,7 @@ pnpm test
 
 Covers seat selection/deselection, the 8-seat selection cap, clearing the selection, the
 persisted-seats `localStorage` round trip, and keyboard navigation (arrow keys, Enter/Space,
-skipping unavailable seats) — see [`src/store/seatStore.test.ts`](src/store/seatStore.test.ts) and
+skipping unavailable seats) - see [`src/store/seatStore.test.ts`](src/store/seatStore.test.ts) and
 [`src/components/Seat.test.tsx`](src/components/Seat.test.tsx).
 
 ---
@@ -229,18 +241,18 @@ This project follows the React engineering standards.
 - **Prettier** (`.prettierrc.json`) is the single source of formatting truth. Run
   `pnpm run format`, or let the pre-commit hook format staged files for you.
 - **TypeScript** runs in strict mode plus `noUncheckedIndexedAccess` and
-  `exactOptionalPropertyTypes` — guard indexed access explicitly instead of asserting it away.
-- `pnpm run quality` runs format-check, lint, and typecheck together — this is what CI runs too.
+  `exactOptionalPropertyTypes` - guard indexed access explicitly instead of asserting it away.
+- `pnpm run quality` runs format-check, lint, and typecheck together - this is what CI runs too.
 
 ### Git hooks (Husky)
 
 Installed via `pnpm run prepare`. Two hooks live in `.husky/`:
 
-- **`pre-commit`** — scans the staged diff with Gitleaks, then runs `lint-staged`
+- **`pre-commit`** - scans the staged diff with Gitleaks, then runs `lint-staged`
   (ESLint `--fix` + Prettier) on the files you're committing.
-- **`commit-msg`** — runs `commitlint` against your commit message.
+- **`commit-msg`** - runs `commitlint` against your commit message.
 
-Don't bypass either hook with `--no-verify` to get past a genuine failure — fix the issue instead.
+Don't bypass either hook with `--no-verify` to get past a genuine failure - fix the issue instead.
 
 ### Commit messages
 
@@ -261,7 +273,7 @@ The pre-commit hook requires the `gitleaks` binary on `PATH` and **fails closed*
 
 GitHub Actions independently re-scans full repository history with the same pinned version, so a bypassed local hook is still caught in CI.
 
-**False positives:** investigate every finding first. Only add a narrowly scoped exception in `.gitleaks.toml` after a real secret has been ruled out, with a comment explaining why — never a blanket allowlist — and re-run the scan afterward.
+**False positives:** investigate every finding first. Only add a narrowly scoped exception in `.gitleaks.toml` after a real secret has been ruled out, with a comment explaining why - never a blanket allowlist - and re-run the scan afterward.
 
 ### Continuous integration
 
