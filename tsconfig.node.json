@@ -5,6 +5,7 @@
     "lib": ["ES2023"],
     "module": "ESNext",
     "types": ["node"],
+    // See tsconfig.app.json for why this stays true despite the standard.
     "skipLibCheck": true,
 
     /* Bundler mode */
@@ -22,7 +23,13 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true
+    "exactOptionalPropertyTypes": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noPropertyAccessFromIndexSignature": true
   },
   "include": ["vite.config.ts", "scripts"]
 }

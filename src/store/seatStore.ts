@@ -45,20 +45,36 @@ interface VenueState {
 
 type PersistedVenueState = Pick<VenueState, 'selectedSeats' | 'soldSeats' | 'bookings'>;
 
+// Optional, not just for the type checker's sake: this is deserializing
+// localStorage, which could hold data from an older app version (written
+// before `bookings` existed) or something a user edited by hand in
+// DevTools - genuinely nothing guarantees these fields are present.
 interface SerializedVenueState {
-  selectedSeats: string[];
-  soldSeats: string[];
-  bookings: Booking[];
+  selectedSeats?: string[];
+  soldSeats?: string[];
+  bookings?: Booking[];
+}
+
+function isPersistedStorageValue(data: unknown): data is StorageValue<SerializedVenueState> {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    'state' in data &&
+    typeof data.state === 'object' &&
+    data.state !== null
+  );
 }
 
 const venueStorage: PersistStorage<PersistedVenueState> = {
   getItem: (name) => {
     const str = localStorage.getItem(name);
     if (!str) return null;
-    const { state, version } = JSON.parse(str) as StorageValue<SerializedVenueState>;
+    const parsed: unknown = JSON.parse(str);
+    if (!isPersistedStorageValue(parsed)) return null;
+    const { state, version } = parsed;
     return {
       state: {
-        selectedSeats: new Set(state.selectedSeats),
+        selectedSeats: new Set(state.selectedSeats ?? []),
         soldSeats: new Set(state.soldSeats ?? []),
         bookings: state.bookings ?? [],
       },
@@ -76,7 +92,9 @@ const venueStorage: PersistStorage<PersistedVenueState> = {
     };
     localStorage.setItem(name, JSON.stringify(serialized));
   },
-  removeItem: (name) => localStorage.removeItem(name),
+  removeItem: (name) => {
+    localStorage.removeItem(name);
+  },
 };
 
 export const useVenueStore = create<VenueState>()(

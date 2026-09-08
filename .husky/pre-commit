@@ -8,3 +8,5 @@ fi
 
 git diff --cached --no-ext-diff --unified=0 | gitleaks stdin --config .gitleaks.toml --redact --no-banner
 npx lint-staged
+pnpm run quality
+pnpm run build

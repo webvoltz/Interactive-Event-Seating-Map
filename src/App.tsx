@@ -77,8 +77,12 @@ const App = () => {
 
   // Zooming doesn't try to keep any point centered - only the initial load
   // does (see the effect above). The user pans/scrolls freely afterward.
-  const handleZoomIn = () => setZoom(zoom + ZOOM_STEP);
-  const handleZoomOut = () => setZoom(Math.max(zoom - ZOOM_STEP, MIN_ZOOM));
+  const handleZoomIn = () => {
+    setZoom(zoom + ZOOM_STEP);
+  };
+  const handleZoomOut = () => {
+    setZoom(Math.max(zoom - ZOOM_STEP, MIN_ZOOM));
+  };
   const handleResetView = () => {
     if (!venue) return;
     useVenueStore.getState().setActiveSection(null);
@@ -167,7 +171,9 @@ const App = () => {
           desktop/laptop. */}
       {!showSidebar && (
         <button
-          onClick={() => setShowSidebar(true)}
+          onClick={() => {
+            setShowSidebar(true);
+          }}
           className="lg:hidden fixed top-4 left-4 z-60 bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg font-bold text-sm flex items-center gap-2"
         >
           <Icon name="menu" />
@@ -192,7 +198,9 @@ const App = () => {
           <IconButton
             icon="close"
             label="Close menu"
-            onClick={() => setShowSidebar(false)}
+            onClick={() => {
+              setShowSidebar(false);
+            }}
             className="lg:hidden absolute top-4 right-4 z-10"
           />
           <BookingSummary venue={venue} />
@@ -206,7 +214,9 @@ const App = () => {
       <IconButton
         icon="chevron-left"
         label={sidebarCollapsed ? 'Show panel' : 'Hide panel'}
-        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onClick={() => {
+          setSidebarCollapsed(!sidebarCollapsed);
+        }}
         className={`hidden lg:flex fixed top-4 z-50 transition-all! duration-300 ease-in-out ${
           sidebarCollapsed ? 'left-4' : 'left-[372px]'
         }`}
@@ -232,7 +242,9 @@ const App = () => {
           type="button"
           aria-label="Close menu"
           className="lg:hidden fixed inset-0 bg-black/50 z-40"
-          onClick={() => setShowSidebar(false)}
+          onClick={() => {
+            setShowSidebar(false);
+          }}
         />
       )}
 

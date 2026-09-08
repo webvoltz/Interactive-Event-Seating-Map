@@ -44,7 +44,9 @@ export default function SeatSelectionPanel({ venue }: SeatSelectionPanelProps) {
         <span>Selected Seats ({selectedSeats.size}/8)</span>
         {selectedSeats.size > 0 && (
           <button
-            onClick={() => setShowClearConfirm(true)}
+            onClick={() => {
+              setShowClearConfirm(true);
+            }}
             className="cursor-pointer text-red-500 hover:text-red-600 hover:underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
           >
             Clear
@@ -73,7 +75,9 @@ export default function SeatSelectionPanel({ venue }: SeatSelectionPanelProps) {
           message={`This removes all ${selectedSeats.size} selected seat${selectedSeats.size === 1 ? '' : 's'} from your cart. This can't be undone.`}
           confirmLabel="Clear"
           onConfirm={handleClear}
-          onCancel={() => setShowClearConfirm(false)}
+          onCancel={() => {
+            setShowClearConfirm(false);
+          }}
         />
       )}
     </div>

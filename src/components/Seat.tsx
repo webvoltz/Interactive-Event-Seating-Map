@@ -43,22 +43,19 @@ const Seats = memo(function Seats({ rows }: SeatsProps) {
   }, [bookings, viewingBookingId]);
 
   const handleInteraction = (
-    e: React.MouseEvent | React.KeyboardEvent,
+    e: React.MouseEvent<SVGGElement> | React.KeyboardEvent<SVGGElement>,
     seat: ISeat,
     isUnavailable: boolean,
   ) => {
     e.stopPropagation();
     if (!isUnavailable) {
       toggleSeat(seat.id);
-      const target = e.currentTarget || document.getElementById(`seat-${seat.id}`);
-      if (target && typeof (target as HTMLElement).focus === 'function') {
-        (target as HTMLElement).focus();
-      }
+      e.currentTarget.focus();
     }
   };
 
   const handleKeyDown = (
-    e: React.KeyboardEvent,
+    e: React.KeyboardEvent<SVGGElement>,
     seat: ISeat,
     rowIndex: number,
     seatIndex: number,
@@ -145,7 +142,7 @@ const Seats = memo(function Seats({ rows }: SeatsProps) {
             strokeWidth = 0.4;
             textColor = 'white';
           } else {
-            stroke = TIER_STROKE[seat.priceTier] || 'var(--color-seat-available-stroke)';
+            stroke = TIER_STROKE[seat.priceTier] ?? 'var(--color-seat-available-stroke)';
           }
 
           const isHighlighted = highlightedSeatIds?.has(seat.id) ?? false;
@@ -165,8 +162,12 @@ const Seats = memo(function Seats({ rows }: SeatsProps) {
             <g
               key={seat.id}
               id={`seat-${seat.id}`}
-              onClick={(e) => handleInteraction(e, seat, isUnavailable)}
-              onKeyDown={(e) => handleKeyDown(e, seat, rowIndex, seatIndex, isUnavailable)}
+              onClick={(e) => {
+                handleInteraction(e, seat, isUnavailable);
+              }}
+              onKeyDown={(e) => {
+                handleKeyDown(e, seat, rowIndex, seatIndex, isUnavailable);
+              }}
               role="checkbox"
               aria-checked={isSelected}
               aria-label={label}

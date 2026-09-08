@@ -12,43 +12,45 @@ function Section({ section, bounds }: { section: Section; bounds: VenueContentBo
   const isActive = activeSectionId === section.id;
 
   useEffect(() => {
-    if (isActive) {
-      let minX = Infinity,
-        minY = Infinity,
-        maxX = -Infinity,
-        maxY = -Infinity;
-      section.rows.forEach((row) => {
-        row.seats.forEach((seat) => {
-          minX = Math.min(minX, seat.x);
-          minY = Math.min(minY, seat.y);
-          maxX = Math.max(maxX, seat.x);
-          maxY = Math.max(maxY, seat.y);
-        });
+    if (!isActive) return undefined;
+
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
+    section.rows.forEach((row) => {
+      row.seats.forEach((seat) => {
+        minX = Math.min(minX, seat.x);
+        minY = Math.min(minY, seat.y);
+        maxX = Math.max(maxX, seat.x);
+        maxY = Math.max(maxY, seat.y);
       });
+    });
 
-      const centerX = (minX + maxX) / 2;
-      const centerY = (minY + maxY) / 2;
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
 
-      const timer = setTimeout(() => {
-        const mapContainer = document.querySelector('main.overflow-auto');
-        if (mapContainer) {
-          const currentZoom = useVenueStore.getState().zoom;
-          // The SVG's own pixel origin is the viewBox's top-left corner
-          // (bounds.minX/minY, cropped to the venue's content - see
-          // VenueMap.tsx), not absolute coordinate (0, 0), so that offset
-          // has to be subtracted before scaling by zoom.
-          const scrollX = (centerX - bounds.minX) * currentZoom - mapContainer.clientWidth / 2;
-          const scrollY = (centerY - bounds.minY) * currentZoom - mapContainer.clientHeight / 2;
+    const timer = setTimeout(() => {
+      const mapContainer = document.querySelector('main.overflow-auto');
+      if (mapContainer) {
+        const currentZoom = useVenueStore.getState().zoom;
+        // The SVG's own pixel origin is the viewBox's top-left corner
+        // (bounds.minX/minY, cropped to the venue's content - see
+        // VenueMap.tsx), not absolute coordinate (0, 0), so that offset
+        // has to be subtracted before scaling by zoom.
+        const scrollX = (centerX - bounds.minX) * currentZoom - mapContainer.clientWidth / 2;
+        const scrollY = (centerY - bounds.minY) * currentZoom - mapContainer.clientHeight / 2;
 
-          mapContainer.scrollTo({
-            left: Math.max(0, scrollX),
-            top: Math.max(0, scrollY),
-            behavior: 'smooth',
-          });
-        }
-      }, 150);
-      return () => clearTimeout(timer);
-    }
+        mapContainer.scrollTo({
+          left: Math.max(0, scrollX),
+          top: Math.max(0, scrollY),
+          behavior: 'smooth',
+        });
+      }
+    }, 150);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [isActive, section, bounds]);
 
   const coverPath = useMemo(() => {
@@ -143,7 +145,9 @@ function Section({ section, bounds }: { section: Section; bounds: VenueContentBo
             fill="white"
             fillOpacity="0.01"
             stroke="none"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
             style={{ cursor: 'default' }}
           />
           <Seats rows={section.rows} />

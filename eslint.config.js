@@ -44,7 +44,7 @@ export default defineConfig(
   },
   {
     files: typedFiles,
-    extends: [tseslint.configs.recommendedTypeChecked],
+    extends: [tseslint.configs.strictTypeChecked, tseslint.configs.stylisticTypeChecked],
     languageOptions: {
       parserOptions: {
         projectService: true,
@@ -52,9 +52,43 @@ export default defineConfig(
       },
     },
     rules: {
-      '@typescript-eslint/consistent-type-imports': 'error',
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/no-unsafe-argument': 'error',
+      '@typescript-eslint/no-unsafe-assignment': 'error',
+      '@typescript-eslint/no-unsafe-call': 'error',
+      '@typescript-eslint/no-unsafe-declaration-merging': 'error',
+      '@typescript-eslint/no-unsafe-enum-comparison': 'error',
+      '@typescript-eslint/no-unsafe-function-type': 'error',
+      '@typescript-eslint/no-unsafe-member-access': 'error',
+      '@typescript-eslint/no-unsafe-return': 'error',
+      '@typescript-eslint/no-unsafe-type-assertion': 'error',
+      '@typescript-eslint/no-unsafe-unary-minus': 'error',
+      '@typescript-eslint/only-throw-error': 'error',
+      '@typescript-eslint/require-await': 'error',
+      '@typescript-eslint/switch-exhaustiveness-check': 'error',
+      '@typescript-eslint/ban-ts-comment': [
+        'error',
+        {
+          minimumDescriptionLength: 10,
+          'ts-check': false,
+          'ts-expect-error': 'allow-with-description',
+          'ts-ignore': true,
+          'ts-nocheck': true,
+        },
+      ],
+      '@typescript-eslint/consistent-type-imports': [
+        'error',
+        { fixStyle: 'inline-type-imports', prefer: 'type-imports' },
+      ],
+      // `stylisticTypeChecked`'s default (string-only) is stricter than this
+      // codebase needs: seat coordinates, zoom levels, and prices are
+      // legitimately interpolated as numbers throughout. Objects, `null`,
+      // and `undefined` remain disallowed - those are the actual "prints
+      // '[object Object]'/'undefined' by accident" cases this rule guards
+      // against.
+      '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
     },
   },
   {

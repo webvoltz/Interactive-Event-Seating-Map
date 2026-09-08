@@ -10,7 +10,9 @@ export default function Toast() {
   useEffect(() => {
     if (!feedback) return;
     const timer = setTimeout(clearFeedback, AUTO_DISMISS_MS);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [feedback, clearFeedback]);
 
   if (!feedback) return null;

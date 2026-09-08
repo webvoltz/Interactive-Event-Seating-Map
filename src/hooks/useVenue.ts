@@ -1,6 +1,24 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Venue } from '../interfaces/venue.interfaces';
 
+// A minimal structural check on the fetched JSON before it's trusted as a
+// `Venue` - not a full per-seat schema (15,000 seats would make that slow
+// for little benefit), just enough to catch the realistic failure modes for
+// a static file: wrong file, an error page parsed as JSON, or a completely
+// different shape.
+function isVenue(data: unknown): data is Venue {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    'venueId' in data &&
+    'name' in data &&
+    'sections' in data &&
+    typeof data.venueId === 'string' &&
+    typeof data.name === 'string' &&
+    Array.isArray(data.sections)
+  );
+}
+
 export function useVenue() {
   const [venue, setVenue] = useState<Venue | null>(null);
   const [loading, setLoading] = useState(true);
@@ -19,8 +37,13 @@ export function useVenue() {
     const fetchVenue = async () => {
       try {
         const response = await fetch('/venue.json');
-        const data = (await response.json()) as Venue;
+        const data: unknown = await response.json();
         if (cancelled) return;
+        if (!isVenue(data)) {
+          setError('Failed to load venue data');
+          setLoading(false);
+          return;
+        }
         setVenue(data);
         setLoading(false);
       } catch {

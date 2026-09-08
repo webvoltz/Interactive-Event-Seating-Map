@@ -80,10 +80,16 @@ export default function BookingHistoryPanel({ venue }: BookingHistoryPanelProps)
                   .filter((label): label is string => Boolean(label)),
               ),
             );
-            const primaryLabel =
-              sectionLabels.length > 1
-                ? `${sectionLabels[0]} +${sectionLabels.length - 1} more`
-                : (sectionLabels[0] ?? 'Unknown section');
+            // Destructuring (rather than checking `sectionLabels.length`) is
+            // what lets TypeScript actually narrow `firstLabel` to `string`
+            // below - indexed access alone stays `string | undefined` under
+            // noUncheckedIndexedAccess even inside a length check.
+            const [firstLabel, ...restLabels] = sectionLabels;
+            const primaryLabel = firstLabel
+              ? restLabels.length > 0
+                ? `${firstLabel} +${restLabels.length} more`
+                : firstLabel
+              : 'Unknown section';
             const isActive = viewingBookingId === booking.id;
 
             return (
@@ -91,7 +97,9 @@ export default function BookingHistoryPanel({ venue }: BookingHistoryPanelProps)
                 key={booking.id}
                 type="button"
                 aria-pressed={isActive}
-                onClick={() => handleBookingClick(booking)}
+                onClick={() => {
+                  handleBookingClick(booking);
+                }}
                 className={`w-full text-left p-3 rounded-lg shadow-sm border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${
                   isActive
                     ? 'border-2 border-blue-600 bg-blue-50'

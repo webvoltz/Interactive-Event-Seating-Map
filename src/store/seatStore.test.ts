@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MAX_SELECTABLE_SEATS, useVenueStore } from './seatStore';
 
+// Throwing (rather than `expect(raw).not.toBeNull()` + a `!` at the call
+// site) gives TypeScript a real narrowing point, and still fails the test
+// with a clear message if persistence didn't happen as expected.
+function getPersistedRaw(): string {
+  const raw = localStorage.getItem('venue-storage');
+  if (raw === null) throw new Error('Expected venue-storage to be persisted in localStorage.');
+  return raw;
+}
+
 const resetStore = () => {
   useVenueStore.setState({
     activeSectionId: null,
@@ -116,10 +125,12 @@ describe('seatStore', () => {
     // Zustand's persist middleware writes to storage asynchronously (microtask).
     await Promise.resolve();
 
-    const raw = localStorage.getItem('venue-storage');
-    expect(raw).not.toBeNull();
-
-    const parsed = JSON.parse(raw as string) as {
+    const raw = getPersistedRaw();
+    // Asserting the shape here (rather than writing a full type guard) is
+    // fine specifically because this is the exact data this test just wrote
+    // two lines above via toggleSeat() - not untrusted external input.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    const parsed = JSON.parse(raw) as unknown as {
       state: { selectedSeats: string[]; soldSeats: string[] };
     };
     expect(parsed.state.selectedSeats.sort()).toEqual(['SEAT-1', 'SEAT-2']);
@@ -139,8 +150,11 @@ describe('seatStore', () => {
 
     await Promise.resolve();
 
-    const raw = localStorage.getItem('venue-storage');
-    const parsed = JSON.parse(raw as string) as { state: { soldSeats: string[] } };
+    const raw = getPersistedRaw();
+    // Same reasoning as the previous test: asserting the shape of data this
+    // test just wrote itself, not untrusted external input.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    const parsed = JSON.parse(raw) as unknown as { state: { soldSeats: string[] } };
     expect(parsed.state.soldSeats).toEqual(['SEAT-1']);
 
     // Simulate a fresh load rehydrating from that same storage key.
@@ -156,8 +170,11 @@ describe('seatStore', () => {
 
     await Promise.resolve();
 
-    const raw = localStorage.getItem('venue-storage');
-    const parsed = JSON.parse(raw as string) as {
+    const raw = getPersistedRaw();
+    // Same reasoning as the previous tests: asserting the shape of data this
+    // test just wrote itself, not untrusted external input.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    const parsed = JSON.parse(raw) as unknown as {
       state: { bookings: { id: string; seatIds: string[]; total: number; createdAt: number }[] };
     };
     expect(parsed.state.bookings).toHaveLength(1);

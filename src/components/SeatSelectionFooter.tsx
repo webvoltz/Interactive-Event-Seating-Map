@@ -33,7 +33,9 @@ export default function SeatSelectionFooter({
       ) : (
         <button
           disabled={selectedSeatsCount === 0}
-          onClick={() => onConfirmPurchase(total)}
+          onClick={() => {
+            onConfirmPurchase(total);
+          }}
           className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg transition-all transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2
                     ${
                       selectedSeatsCount > 0

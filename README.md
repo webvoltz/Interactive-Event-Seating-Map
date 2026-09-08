@@ -127,8 +127,10 @@ decisions and where they'd need to change at greater scale.
 ### Engineering standards & tooling
 
 - **Testing**: Vitest + Testing Library (jsdom)
-- **Linting/Formatting**: ESLint (React, hooks, jsx-a11y, type-checked TypeScript rules) + Prettier
-- **Git hooks**: Husky (`pre-commit` → Gitleaks + lint-staged, `commit-msg` → commitlint)
+- **Linting/Formatting**: ESLint (React, hooks, jsx-a11y, strict + stylistic type-checked
+  TypeScript rules) + Prettier
+- **Git hooks**: Husky (`pre-commit` → Gitleaks + lint-staged + full quality check + production
+  build, `commit-msg` → commitlint)
 - **Commit convention**: Conventional Commits, enforced by commitlint
 - **Secret scanning**: Gitleaks (local pre-commit + full-history scan in CI)
 - **CI**: GitHub Actions (`secret-scan`, `quality`, `commitlint`, `test`, `build`)
@@ -141,26 +143,34 @@ See [Engineering standards](#-engineering-standards) below for details.
 
 ```text
 ├── docs/
-│   ├── engineering-notes.md  # Tradeoffs and performance bottlenecks
-│   └── screenshots/          # README screenshots
+│   ├── engineering-notes.md              # Tradeoffs, performance bottlenecks, known gaps
+│   ├── ui-ux-and-business-logic-flow.md  # UI state/interaction reference
+│   └── screenshots/                      # README screenshots
 ├── public/
-│   └── venue.json           # Generated seating data served to the client
+│   ├── venue.json    # Generated seating data served to the client
+│   ├── robots.txt
+│   └── llms.txt
 ├── scripts/
 │   └── generateVenue.ts     # Generates public/venue.json
 ├── src/
-│   ├── components/           # VenueMap, Section, Seat, Stage, BookingSummary, Toast, ...
+│   ├── components/    # VenueMap, Section, Seat, BookingSummary, SeatSelectionPanel,
+│   │                   # SeatSelectionFooter, BookingHistoryPanel, ConfirmDialog, Toast,
+│   │                   # Icon, IconButton
 │   ├── hooks/
-│   │   └── useVenue.ts       # Fetches and exposes public/venue.json
+│   │   └── useVenue.ts       # Fetches and validates public/venue.json
 │   ├── store/
-│   │   └── seatStore.ts      # Zustand store (zoom, active section, selected seats, feedback)
+│   │   └── seatStore.ts      # Zustand store (zoom, active section, selection, sold seats,
+│   │                          # booking history, feedback)
 │   ├── interfaces/
 │   │   └── venue.interfaces.ts
+│   ├── utils/         # rowLetter, seatIndex, venueBounds
 │   ├── test/
 │   │   └── setup.ts          # Vitest + Testing Library setup
 │   ├── App.tsx
 │   └── main.tsx
 ├── .github/workflows/ci.yml  # CI pipeline
 ├── .husky/                   # pre-commit / commit-msg hooks
+├── .nvmrc / .npmrc           # Node/pnpm version + install policy
 └── README.md
 ```
 
@@ -170,8 +180,10 @@ See [Engineering standards](#-engineering-standards) below for details.
 
 ### Prerequisites
 
-- **Node.js** `>=24 <25` (see `engines` in `package.json`)
-- **pnpm** (this project uses pnpm, not npm/yarn - a `pnpm-lock.yaml` is committed)
+- **Node.js** `>=24 <25` (see `.nvmrc` / `engines` in `package.json`)
+- **pnpm 11.x** (this project uses pnpm, not npm/yarn - pinned exactly via the `packageManager`
+  field in `package.json`; `.npmrc` sets `engine-strict=true` so installs fail fast on a
+  mismatched Node/pnpm version instead of silently drifting)
 - **Gitleaks v8.30.1** on `PATH` - required by the pre-commit hook (see [Secret scanning](#secret-scanning-gitleaks))
 
 ### Installation & Setup
@@ -221,35 +233,56 @@ There are **no environment variables** - seating data is served from the static 
 pnpm test
 ```
 
-Covers seat selection/deselection, the 8-seat selection cap, clearing the selection, the
-persisted-seats `localStorage` round trip, and keyboard navigation (arrow keys, Enter/Space,
-skipping unavailable seats) - see [`src/store/seatStore.test.ts`](src/store/seatStore.test.ts) and
+Runs with V8 coverage enabled (`pnpm run security:audit` covers dependency vulnerabilities
+separately). Coverage thresholds in [`vite.config.ts`](vite.config.ts) are set to today's actual
+numbers as a regression floor, not the org standard's targets (branches 85% / functions 100% /
+lines 90% / statements 90%) - most components don't have tests yet; see
+[`docs/engineering-notes.md`](docs/engineering-notes.md#known-remaining-gaps) for the honest
+current numbers and what closing that gap actually requires.
+
+Existing tests cover seat selection/deselection, the 8-seat selection cap, clearing the selection,
+the persisted-seats/sold-seats/booking-history `localStorage` round trip, and keyboard navigation
+(arrow keys, Enter/Space, skipping unavailable seats) - see
+[`src/store/seatStore.test.ts`](src/store/seatStore.test.ts) and
 [`src/components/Seat.test.tsx`](src/components/Seat.test.tsx).
 
 ---
 
 ## 📐 Engineering standards
 
-This project follows the React engineering standards.
+This project follows the Webvoltz React engineering standards.
 
 ### Code quality
 
 - **ESLint** (`eslint.config.js`) lints `.js/.jsx/.ts/.tsx` with `eslint-plugin-react`,
-  `eslint-plugin-react-hooks`, `eslint-plugin-jsx-a11y`, and type-checked
-  `typescript-eslint` rules (`no-floating-promises`, `no-misused-promises`, `no-unsafe-*`,
-  `consistent-type-imports`). `pnpm run lint` fails on any warning (`--max-warnings=0`).
+  `eslint-plugin-react-hooks`, `eslint-plugin-jsx-a11y`, and `typescript-eslint`'s
+  `strictTypeChecked` + `stylisticTypeChecked` rule sets - `no-explicit-any`, every `no-unsafe-*`
+  rule, `only-throw-error`, `require-await`, `switch-exhaustiveness-check`, `ban-ts-comment`
+  (`@ts-expect-error` requires a real description), and `consistent-type-imports` are all errors,
+  not warnings. `restrict-template-expressions` allows `number` (seat coordinates/prices are
+  legitimately interpolated) but still disallows objects/`null`/`undefined`. `pnpm run lint` fails
+  on any warning (`--max-warnings=0`).
 - **Prettier** (`.prettierrc.json`) is the single source of formatting truth. Run
   `pnpm run format`, or let the pre-commit hook format staged files for you.
-- **TypeScript** runs in strict mode plus `noUncheckedIndexedAccess` and
-  `exactOptionalPropertyTypes` - guard indexed access explicitly instead of asserting it away.
-- `pnpm run quality` runs format-check, lint, and typecheck together - this is what CI runs too.
+- **TypeScript** runs in strict mode plus `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
+  `noImplicitReturns`, `noImplicitOverride`, `noPropertyAccessFromIndexSignature`,
+  `forceConsistentCasingInFileNames`, `allowUnreachableCode: false`, and `allowUnusedLabels: false`,
+  guarding indexed access explicitly instead of asserting it away. `skipLibCheck` stays `true`
+  (rather than the standard's `false`) as a documented exception: flipping it surfaces type
+  conflicts inside vitest/vite/testing-library's own bundled declarations, not this project's own
+  code (see the comment in `tsconfig.app.json`).
+- `pnpm run quality` runs format-check, lint, and typecheck together - this is what CI runs, and
+  what the pre-commit hook runs on the whole project (not just staged files) before every commit.
+- `pnpm run security:audit` runs `pnpm audit --audit-level high` for dependency vulnerabilities.
 
 ### Git hooks (Husky)
 
 Installed via `pnpm run prepare`. Two hooks live in `.husky/`:
 
-- **`pre-commit`** - scans the staged diff with Gitleaks, then runs `lint-staged`
-  (ESLint `--fix` + Prettier) on the files you're committing.
+- **`pre-commit`** - in order: scans the staged diff with Gitleaks, runs `lint-staged`
+  (ESLint `--fix` + Prettier) on the files you're committing, then `pnpm run quality` and
+  `pnpm run build` against the **whole project** (not just staged files) - a broken build or a
+  type error anywhere blocks the commit, even in a file you didn't touch.
 - **`commit-msg`** - runs `commitlint` against your commit message.
 
 Don't bypass either hook with `--no-verify` to get past a genuine failure - fix the issue instead.
@@ -258,7 +291,9 @@ Don't bypass either hook with `--no-verify` to get past a genuine failure - fix 
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/), checked by `commitlint.config.cjs`:
 
-- Header (first line) must be ≤ 100 characters.
+- Header, body, and footer lines must each be ≤ 1000 characters - room to actually explain
+  yourself, not the old 72/100-character convention that just trains people to write useless
+  messages to fit.
 - `type` must be one of: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`.
 
 Example: `fix: prevent seat selection past the 8-seat limit`
@@ -279,13 +314,13 @@ GitHub Actions independently re-scans full repository history with the same pinn
 
 `.github/workflows/ci.yml` runs on every push and pull request:
 
-| Job           | What it does                                        |
-| ------------- | --------------------------------------------------- |
-| `secret-scan` | Gitleaks over full repository history.              |
-| `quality`     | `pnpm run quality` (format check, lint, typecheck). |
-| `commitlint`  | Lints the commit range being pushed/merged.         |
-| `test`        | `pnpm test`.                                        |
-| `build`       | `pnpm run build`.                                   |
+| Job           | What it does                                                                   |
+| ------------- | ------------------------------------------------------------------------------ |
+| `secret-scan` | Gitleaks over full repository history.                                         |
+| `quality`     | `pnpm run quality` (format check, lint, typecheck).                            |
+| `commitlint`  | Lints the commit range being pushed/merged.                                    |
+| `test`        | `pnpm test` (V8 coverage, checked against the thresholds in `vite.config.ts`). |
+| `build`       | `pnpm run build`.                                                              |
 
 All jobs must pass before merging.
 

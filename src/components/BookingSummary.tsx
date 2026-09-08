@@ -22,8 +22,12 @@ export default function BookingSummary({ venue }: BookingSummaryProps) {
 
   useEffect(() => {
     if (confirmedTotal === null) return;
-    const timer = setTimeout(() => setConfirmedTotal(null), CONFIRMATION_DISPLAY_MS);
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => {
+      setConfirmedTotal(null);
+    }, CONFIRMATION_DISPLAY_MS);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [confirmedTotal]);
 
   const handleConfirmPurchase = (total: number) => {

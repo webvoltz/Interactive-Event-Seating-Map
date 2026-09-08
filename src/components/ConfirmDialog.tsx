@@ -23,7 +23,9 @@ export default function ConfirmDialog({
       if (e.key === 'Escape') onCancel();
     };
     document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, [onCancel]);
 
   // The backdrop button already blocks mouse clicks on the app behind it,

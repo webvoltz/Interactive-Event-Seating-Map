@@ -6,6 +6,11 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "types": ["vite/client"],
+    // The org standard wants this false, but flipping it here surfaces
+    // internal type-declaration conflicts inside vitest/vite/testing-library
+    // themselves (e.g. duplicate `Assertion` type param declarations,
+    // `@vitest/expect` module resolution) - not our code, and not fixable
+    // from this project. Documented exception rather than silently ignored.
     "skipLibCheck": true,
 
     /* Bundler mode */
@@ -24,7 +29,13 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true
+    "exactOptionalPropertyTypes": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noPropertyAccessFromIndexSignature": true
   },
   "include": ["src"]
 }

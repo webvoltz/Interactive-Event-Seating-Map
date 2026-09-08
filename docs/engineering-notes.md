@@ -61,7 +61,28 @@ scope (survive a page refresh, single device, no login) but has real limits:
 ## Known remaining gaps
 
 - No virtualization within an active section's own seat list (see above).
-- The "Proceed to Pay" flow (see [`BookingSummary.tsx`](../src/components/BookingSummary.tsx)) is an
-  intentional UI stub - it shows an inline confirmation, not a real payment integration.
+- The "Proceed to Pay" flow (see
+  [`SeatSelectionFooter.tsx`](../src/components/SeatSelectionFooter.tsx)) is an intentional UI
+  stub - it shows an inline confirmation, not a real payment integration.
 - Seat availability (`sold`/`reserved`/`held`) is static sample data with no live update mechanism
   (no websocket/polling) - a second user selecting the same seat isn't reflected without a refresh.
+- **Test coverage is well below the org engineering standard.** The standard
+  ([`Webvoltz-Engineering-Standards/react`](../../Webvoltz-Engineering-Standards/react)) requires
+  branches 85% / functions 100% / lines 90% / statements 90%. Actual project-wide coverage today
+  (`pnpm test`, V8 provider, whole `src/` tree): **statements 24.6%, branches 27.8%, functions
+  19.9%, lines 25.3%** - only `Seat.tsx` and `seatStore.ts` have real test coverage; `App.tsx`,
+  `VenueMap.tsx`, `Section.tsx`, `BookingSummary.tsx`, `SeatSelectionPanel.tsx`,
+  `SeatSelectionFooter.tsx`, `BookingHistoryPanel.tsx`, `ConfirmDialog.tsx`, `Icon.tsx`,
+  `IconButton.tsx`, `Toast.tsx`, `useVenue.ts`, and the `utils/` helpers have none. The thresholds
+  in [`vite.config.ts`](../vite.config.ts) are set to today's actual numbers (a floor against
+  regression), not the standard's targets - reaching those targets means writing real test suites
+  for all of the above, which is a substantial task on its own, not a quick config change.
+- ~~CI's pnpm version pin doesn't match the actual pnpm in use~~ **Resolved**: standardized on
+  pnpm 11.x, matching this project's actual dev environment (the one pnpm version proven to work
+  here all session). `.github/workflows/ci.yml`'s `PNPM_VERSION` is now `'11'`, and
+  `package.json` pins `"packageManager": "pnpm@11.6.0"` to match - `pnpm install` confirmed clean
+  locally with both in place (this is exactly the combination that previously failed when CI said
+  `'10'` and `packageManager` said `pnpm@11.6.0`: pnpm tried to force-switch versions and aborted
+  without an interactive terminal). Not independently verified against a real GitHub Actions run
+  from here, but there's no reason pnpm 11 - a current, published major version - shouldn't install
+  and run cleanly in that environment the same way it has here.
