@@ -9,6 +9,7 @@ import { useVenueStore } from './store/seatStore';
 import { getVenueContentBounds, type VenueContentBounds } from './utils/venueBounds';
 import {
   ZOOM_STEP,
+  DEFAULT_TRANSITION_MS,
   computeFitView,
   clampPan,
   computeZoomAtPoint,
@@ -29,6 +30,7 @@ function zoomAtPoint(
   newZoomRaw: number,
   clientX: number,
   clientY: number,
+  transitionMs: number,
 ) {
   const { zoom, pan, setView } = useVenueStore.getState();
   const rect = container?.getBoundingClientRect();
@@ -42,13 +44,14 @@ function zoomAtPoint(
     width,
     height,
   );
-  setView(next.zoom, next.pan);
+  setView(next.zoom, next.pan, transitionMs);
 }
 
 const App = () => {
   const { venue, error, loading, refetch } = useVenue();
   const zoom = useVenueStore((s) => s.zoom);
   const pan = useVenueStore((s) => s.pan);
+  const viewTransitionMs = useVenueStore((s) => s.viewTransitionMs);
   const setPan = useVenueStore((s) => s.setPan);
   const setView = useVenueStore((s) => s.setView);
   const selectedSeatsCount = useVenueStore((s) => s.selectedSeats.size);
@@ -104,7 +107,7 @@ const App = () => {
         width,
         height,
       );
-      setView(fitZoom, fitPan);
+      setView(fitZoom, fitPan, DEFAULT_TRANSITION_MS);
     }
   }, [venue, setView]);
 
@@ -121,7 +124,7 @@ const App = () => {
       if (e.ctrlKey) {
         const currentZoom = useVenueStore.getState().zoom;
         const zoomFactor = Math.exp(-deltaY * 0.01);
-        zoomAtPoint(container, bounds, currentZoom * zoomFactor, e.clientX, e.clientY);
+        zoomAtPoint(container, bounds, currentZoom * zoomFactor, e.clientX, e.clientY, 0);
       } else {
         const { zoom: currentZoom, pan: currentPan } = useVenueStore.getState();
         useVenueStore
@@ -155,6 +158,7 @@ const App = () => {
       zoom + direction * ZOOM_STEP,
       cx,
       cy,
+      DEFAULT_TRANSITION_MS,
     );
   };
   const handleZoomIn = () => {
@@ -172,7 +176,7 @@ const App = () => {
       width,
       height,
     );
-    setView(fitZoom, fitPan);
+    setView(fitZoom, fitPan, DEFAULT_TRANSITION_MS);
   };
 
   const pointerOriginRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
@@ -369,7 +373,12 @@ const App = () => {
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
       >
-        <VenueMap venue={venue} zoom={zoom} pan={pan} smooth={!isInteracting} />
+        <VenueMap
+          venue={venue}
+          zoom={zoom}
+          pan={pan}
+          transitionMs={isInteracting ? 0 : viewTransitionMs}
+        />
 
         <div className="fixed right-4 md:right-8 bottom-4 md:bottom-8 flex flex-col gap-2 z-50">
           <IconButton icon="zoom-in" label="Zoom in" onClick={handleZoomIn} />

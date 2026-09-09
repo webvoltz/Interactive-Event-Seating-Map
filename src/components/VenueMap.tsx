@@ -8,14 +8,14 @@ interface VenueMapProps {
   venue: Venue;
   zoom?: number;
   pan?: { x: number; y: number };
-  smooth?: boolean;
+  transitionMs?: number;
 }
 
 export default function VenueMap({
   venue,
   zoom = 1,
   pan = { x: 0, y: 0 },
-  smooth = false,
+  transitionMs = 0,
 }: VenueMapProps) {
   // Size/crop the SVG to the venue's actual content extent, not the full map
   // canvas - see getVenueContentBounds for why. Sections' own seat
@@ -31,7 +31,8 @@ export default function VenueMap({
         height: bounds.height,
         transformOrigin: '0 0',
         transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-        transition: smooth ? 'transform 200ms ease-out' : 'none',
+        transition:
+          transitionMs > 0 ? `transform ${transitionMs}ms cubic-bezier(0.16, 1, 0.3, 1)` : 'none',
       }}
     >
       <svg

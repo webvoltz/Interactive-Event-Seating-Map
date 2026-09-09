@@ -33,10 +33,11 @@ interface VenueState {
   viewingBookingId: string | null;
   zoom: number;
   pan: { x: number; y: number };
+  viewTransitionMs: number;
   feedback: Feedback | null;
   setActiveSection: (id: string | null) => void;
   setPan: (pan: { x: number; y: number }) => void;
-  setView: (zoom: number, pan: { x: number; y: number }) => void;
+  setView: (zoom: number, pan: { x: number; y: number }, transitionMs: number) => void;
   toggleSeat: (seatId: string) => void;
   clearSelection: () => void;
   confirmPurchase: (total: number) => void;
@@ -109,10 +110,11 @@ export const useVenueStore = create<VenueState>()(
       viewingBookingId: null,
       zoom: 0.4,
       pan: { x: 0, y: 0 },
+      viewTransitionMs: 200,
       feedback: null,
       setActiveSection: (id) => set({ activeSectionId: id }),
       setPan: (pan) => set({ pan }),
-      setView: (zoom, pan) => set({ zoom, pan }),
+      setView: (zoom, pan, transitionMs) => set({ zoom, pan, viewTransitionMs: transitionMs }),
 
       toggleSeat: (seatId) =>
         set((state) => {
