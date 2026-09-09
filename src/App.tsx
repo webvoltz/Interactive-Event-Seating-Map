@@ -4,46 +4,77 @@ import BookingSummary from './components/BookingSummary';
 import Toast from './components/Toast';
 import Icon from './components/Icon';
 import IconButton from './components/IconButton';
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { useVenueStore } from './store/seatStore';
-import type { Venue } from './interfaces/venue.interfaces';
-import { getVenueContentBounds } from './utils/venueBounds';
+import { getVenueContentBounds, type VenueContentBounds } from './utils/venueBounds';
+import {
+  ZOOM_STEP,
+  DEFAULT_TRANSITION_MS,
+  computeFitView,
+  clampPan,
+  computeZoomAtPoint,
+  normalizeWheelDelta,
+} from './utils/viewTransform';
 
-const ZOOM_STEP = 0.2;
-const MIN_ZOOM = 0.2;
+function getContainerSize(container: HTMLDivElement | null): { width: number; height: number } {
+  if (container) return { width: container.clientWidth, height: container.clientHeight };
+  return {
+    width: window.innerWidth - (window.innerWidth >= 768 ? 400 : 0),
+    height: window.innerHeight,
+  };
+}
 
-// A small guaranteed buffer so the fitted content never lands close enough
-// to the container's edge to force a scrollbar on its own (measuring
-// clientWidth/Height before a scrollbar appears vs. after one is added is a
-// classic layout feedback loop - this sidesteps it instead of chasing exact
-// pixels).
-const FIT_SAFETY_MARGIN = 0.96;
-
-// Fit to the venue's actual rendered content (see getVenueContentBounds) so
-// the arena fills the viewport instead of sitting small inside the map
-// canvas's built-in panning margin. Shared by the initial-load effect and
-// the "reset view" button so they can't drift out of sync with each other.
-function computeFitZoom(venue: Venue, container: HTMLDivElement | null): number {
-  const availableWidth = container
-    ? container.clientWidth - 64
-    : window.innerWidth - (window.innerWidth >= 768 ? 400 : 0) - 64;
-  const availableHeight = container ? container.clientHeight - 64 : window.innerHeight - 64;
-
-  const bounds = getVenueContentBounds(venue);
-  const fitScale = Math.min(availableWidth / bounds.width, availableHeight / bounds.height, 4);
-  return Math.max(fitScale * FIT_SAFETY_MARGIN, MIN_ZOOM);
+function zoomAtPoint(
+  container: HTMLDivElement | null,
+  bounds: VenueContentBounds,
+  newZoomRaw: number,
+  clientX: number,
+  clientY: number,
+  transitionMs: number,
+) {
+  const { zoom, pan, setView } = useVenueStore.getState();
+  const rect = container?.getBoundingClientRect();
+  const { width, height } = getContainerSize(container);
+  const next = computeZoomAtPoint(
+    { zoom, pan },
+    newZoomRaw,
+    clientX - (rect?.left ?? 0),
+    clientY - (rect?.top ?? 0),
+    bounds,
+    width,
+    height,
+  );
+  setView(next.zoom, next.pan, transitionMs);
 }
 
 const App = () => {
   const { venue, error, loading, refetch } = useVenue();
   const zoom = useVenueStore((s) => s.zoom);
-  const setZoom = useVenueStore((s) => s.setZoom);
+  const pan = useVenueStore((s) => s.pan);
+  const viewTransitionMs = useVenueStore((s) => s.viewTransitionMs);
+  const setPan = useVenueStore((s) => s.setPan);
+  const setView = useVenueStore((s) => s.setView);
   const selectedSeatsCount = useVenueStore((s) => s.selectedSeats.size);
   const [showSidebar, setShowSidebar] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  const [isInteracting, setIsInteracting] = useState(false);
+  const interactionTimeoutRef = useRef<number | undefined>(undefined);
+  const markInteracting = useCallback(() => {
+    setIsInteracting(true);
+    window.clearTimeout(interactionTimeoutRef.current);
+    interactionTimeoutRef.current = window.setTimeout(() => {
+      setIsInteracting(false);
+    }, 200);
+  }, []);
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(interactionTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (venue) {
@@ -66,57 +97,136 @@ const App = () => {
 
         if (sectionToOpen) {
           useVenueStore.getState().setActiveSection(sectionToOpen);
-          setZoom(8); // Zoom into the section, matching Section.tsx's own zoom-in
           return; // Skip default zoom
         }
       }
 
-      setZoom(computeFitZoom(venue, mapContainerRef.current));
+      const { width, height } = getContainerSize(mapContainerRef.current);
+      const { zoom: fitZoom, pan: fitPan } = computeFitView(
+        getVenueContentBounds(venue),
+        width,
+        height,
+      );
+      setView(fitZoom, fitPan, DEFAULT_TRANSITION_MS);
     }
-  }, [venue, setZoom]);
+  }, [venue, setView]);
 
-  // Zooming doesn't try to keep any point centered - only the initial load
-  // does (see the effect above). The user pans/scrolls freely afterward.
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container || !venue) return undefined;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      markInteracting();
+      const bounds = getVenueContentBounds(venue);
+      const { x: deltaX, y: deltaY } = normalizeWheelDelta(e.deltaX, e.deltaY, e.deltaMode);
+
+      if (e.ctrlKey) {
+        const currentZoom = useVenueStore.getState().zoom;
+        const zoomFactor = Math.exp(-deltaY * 0.01);
+        zoomAtPoint(container, bounds, currentZoom * zoomFactor, e.clientX, e.clientY, 0);
+      } else {
+        const { zoom: currentZoom, pan: currentPan } = useVenueStore.getState();
+        useVenueStore
+          .getState()
+          .setPan(
+            clampPan(
+              { x: currentPan.x - deltaX, y: currentPan.y - deltaY },
+              currentZoom,
+              bounds,
+              container.clientWidth,
+              container.clientHeight,
+            ),
+          );
+      }
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+    };
+  }, [venue, markInteracting]);
+
+  const zoomByStep = (direction: 1 | -1) => {
+    if (!venue) return;
+    const rect = mapContainerRef.current?.getBoundingClientRect();
+    const cx = rect ? rect.left + rect.width / 2 : 0;
+    const cy = rect ? rect.top + rect.height / 2 : 0;
+    zoomAtPoint(
+      mapContainerRef.current,
+      getVenueContentBounds(venue),
+      zoom + direction * ZOOM_STEP,
+      cx,
+      cy,
+      DEFAULT_TRANSITION_MS,
+    );
+  };
   const handleZoomIn = () => {
-    setZoom(zoom + ZOOM_STEP);
+    zoomByStep(1);
   };
   const handleZoomOut = () => {
-    setZoom(Math.max(zoom - ZOOM_STEP, MIN_ZOOM));
+    zoomByStep(-1);
   };
   const handleResetView = () => {
     if (!venue) return;
     useVenueStore.getState().setActiveSection(null);
-    setZoom(computeFitZoom(venue, mapContainerRef.current));
+    const { width, height } = getContainerSize(mapContainerRef.current);
+    const { zoom: fitZoom, pan: fitPan } = computeFitView(
+      getVenueContentBounds(venue),
+      width,
+      height,
+    );
+    setView(fitZoom, fitPan, DEFAULT_TRANSITION_MS);
   };
 
-  // Mouse drag handlers
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (mapContainerRef.current) {
+  const pointerOriginRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const DRAG_START_THRESHOLD = 4;
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    pointerOriginRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const origin = pointerOriginRef.current;
+    if (!venue || origin?.pointerId !== e.pointerId) return;
+
+    if (!isDragging) {
+      const moved = Math.hypot(e.clientX - origin.x, e.clientY - origin.y);
+      if (moved < DRAG_START_THRESHOLD) return;
       setIsDragging(true);
-      setDragStart({
-        x: e.clientX + mapContainerRef.current.scrollLeft,
-        y: e.clientY + mapContainerRef.current.scrollTop,
-      });
+      try {
+        mapContainerRef.current?.setPointerCapture(e.pointerId);
+      } catch {
+        // no-op
+      }
     }
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || !mapContainerRef.current) return;
 
     e.preventDefault();
-    const x = e.clientX;
-    const y = e.clientY;
-
-    mapContainerRef.current.scrollLeft = dragStart.x - x;
-    mapContainerRef.current.scrollTop = dragStart.y - y;
+    markInteracting();
+    const { width, height } = getContainerSize(mapContainerRef.current);
+    setPan(
+      clampPan(
+        { x: e.clientX - dragStart.x, y: e.clientY - dragStart.y },
+        zoom,
+        getVenueContentBounds(venue),
+        width,
+        height,
+      ),
+    );
   };
 
-  const handleMouseUp = () => {
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (isDragging) {
+      try {
+        mapContainerRef.current?.releasePointerCapture(e.pointerId);
+      } catch {
+        // no-op
+      }
+    }
     setIsDragging(false);
-  };
-
-  const handleMouseLeave = () => {
-    setIsDragging(false);
+    pointerOriginRef.current = null;
   };
 
   if (loading)
@@ -248,24 +358,27 @@ const App = () => {
         />
       )}
 
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- mouse-drag panning is a progressive enhancement over native scroll; seats remain keyboard-navigable */}
       <main
+        id="map-viewport"
         ref={mapContainerRef}
         // Below `lg:`, the sidebar becomes a full-screen drawer over the
         // map - inert while it's open so keyboard Tab can't reach the zoom
         // controls or seats hidden behind it (mirrors the same pattern used
         // for ConfirmDialog's backdrop).
         inert={showSidebar}
-        className="flex-1 relative h-full bg-gray-200/50 overflow-auto select-none"
-        style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave}
+        className="flex-1 relative h-full bg-gray-200/50 overflow-hidden select-none"
+        style={{ cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
       >
-        <div className="p-4 md:p-8 flex items-center-safe justify-center-safe min-w-full min-h-full">
-          <VenueMap venue={venue} zoom={zoom} />
-        </div>
+        <VenueMap
+          venue={venue}
+          zoom={zoom}
+          pan={pan}
+          transitionMs={isInteracting ? 0 : viewTransitionMs}
+        />
 
         <div className="fixed right-4 md:right-8 bottom-4 md:bottom-8 flex flex-col gap-2 z-50">
           <IconButton icon="zoom-in" label="Zoom in" onClick={handleZoomIn} />
