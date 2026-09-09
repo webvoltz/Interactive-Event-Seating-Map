@@ -2,6 +2,7 @@ import { memo, useMemo, useEffect } from 'react';
 import { useVenueStore } from '../store/seatStore';
 import type { Section } from '../interfaces/venue.interfaces';
 import type { VenueContentBounds } from '../utils/venueBounds';
+import { SECTION_FOCUS_TRANSITION_MS } from '../utils/viewTransform';
 import Seats from './Seat';
 
 const FOCUS_ZOOM = 8;
@@ -34,10 +35,14 @@ function Section({ section, bounds }: { section: Section; bounds: VenueContentBo
     const mapContainer = document.getElementById('map-viewport');
     if (!mapContainer) return;
 
-    useVenueStore.getState().setView(FOCUS_ZOOM, {
-      x: mapContainer.clientWidth / 2 - (centerX - bounds.minX) * FOCUS_ZOOM,
-      y: mapContainer.clientHeight / 2 - (centerY - bounds.minY) * FOCUS_ZOOM,
-    });
+    useVenueStore.getState().setView(
+      FOCUS_ZOOM,
+      {
+        x: mapContainer.clientWidth / 2 - (centerX - bounds.minX) * FOCUS_ZOOM,
+        y: mapContainer.clientHeight / 2 - (centerY - bounds.minY) * FOCUS_ZOOM,
+      },
+      SECTION_FOCUS_TRANSITION_MS,
+    );
   }, [isActive, section, bounds]);
 
   const coverPath = useMemo(() => {

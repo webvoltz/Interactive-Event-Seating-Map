@@ -14,6 +14,9 @@ export const MIN_ZOOM = 0.2;
 export const MAX_ZOOM = 8;
 export const ZOOM_STEP = 0.2;
 
+export const DEFAULT_TRANSITION_MS = 200;
+export const SECTION_FOCUS_TRANSITION_MS = 650;
+
 const FIT_SAFETY_MARGIN = 0.96;
 const PAN_VISIBLE_MARGIN = 80;
 
