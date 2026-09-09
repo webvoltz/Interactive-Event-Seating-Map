@@ -2,78 +2,16 @@ import { memo, useMemo, useEffect } from 'react';
 import { useVenueStore } from '../store/seatStore';
 import type { Section } from '../interfaces/venue.interfaces';
 import type { VenueContentBounds } from '../utils/venueBounds';
+import { computeFitZoom, SECTION_FOCUS_TRANSITION_MS } from '../utils/viewTransform';
 import Seats from './Seat';
+
+const FOCUS_PADDING = 60;
 
 function Section({ section, bounds }: { section: Section; bounds: VenueContentBounds }) {
   const activeSectionId = useVenueStore((s) => s.activeSectionId);
-  const setZoom = useVenueStore((s) => s.setZoom);
   const setActiveSection = useVenueStore((s) => s.setActiveSection);
 
   const isActive = activeSectionId === section.id;
-
-  useEffect(() => {
-    if (!isActive) return undefined;
-
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
-    section.rows.forEach((row) => {
-      row.seats.forEach((seat) => {
-        minX = Math.min(minX, seat.x);
-        minY = Math.min(minY, seat.y);
-        maxX = Math.max(maxX, seat.x);
-        maxY = Math.max(maxY, seat.y);
-      });
-    });
-
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-
-    const timer = setTimeout(() => {
-      const mapContainer = document.querySelector('main.overflow-auto');
-      if (mapContainer) {
-        const currentZoom = useVenueStore.getState().zoom;
-        // The SVG's own pixel origin is the viewBox's top-left corner
-        // (bounds.minX/minY, cropped to the venue's content - see
-        // VenueMap.tsx), not absolute coordinate (0, 0), so that offset
-        // has to be subtracted before scaling by zoom.
-        const scrollX = (centerX - bounds.minX) * currentZoom - mapContainer.clientWidth / 2;
-        const scrollY = (centerY - bounds.minY) * currentZoom - mapContainer.clientHeight / 2;
-
-        mapContainer.scrollTo({
-          left: Math.max(0, scrollX),
-          top: Math.max(0, scrollY),
-          behavior: 'smooth',
-        });
-      }
-    }, 150);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [isActive, section, bounds]);
-
-  const coverPath = useMemo(() => {
-    const firstRow = section.rows[0];
-    const lastRow = section.rows[section.rows.length - 1];
-    const firstSeat = firstRow?.seats[0];
-    if (!firstRow || !lastRow || !firstSeat) return '';
-
-    let d = `M ${firstSeat.x} ${firstSeat.y}`;
-
-    for (let i = 1; i < firstRow.seats.length; i++) {
-      const s = firstRow.seats[i];
-      if (s) d += ` L ${s.x} ${s.y}`;
-    }
-
-    for (let i = lastRow.seats.length - 1; i >= 0; i--) {
-      const s = lastRow.seats[i];
-      if (s) d += ` L ${s.x} ${s.y}`;
-    }
-
-    d += ' Z';
-    return d;
-  }, [section]);
 
   const { labelPos, explodeOffset } = useMemo(() => {
     const emptyResult = { labelPos: { x: 0, y: 0 }, explodeOffset: { x: 0, y: 0 } };
@@ -111,10 +49,73 @@ function Section({ section, bounds }: { section: Section; bounds: VenueContentBo
     };
   }, [section]);
 
+  useEffect(() => {
+    if (!isActive) return;
+
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
+    section.rows.forEach((row) => {
+      row.seats.forEach((seat) => {
+        minX = Math.min(minX, seat.x);
+        minY = Math.min(minY, seat.y);
+        maxX = Math.max(maxX, seat.x);
+        maxY = Math.max(maxY, seat.y);
+      });
+    });
+
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    const mapContainer = document.getElementById('map-viewport');
+    if (!mapContainer) return;
+
+    const focusZoom = computeFitZoom(
+      {
+        minX: 0,
+        minY: 0,
+        width: maxX - minX + FOCUS_PADDING * 2,
+        height: maxY - minY + FOCUS_PADDING * 2,
+      },
+      mapContainer.clientWidth - 64,
+      mapContainer.clientHeight - 64,
+    );
+
+    useVenueStore.getState().setView(
+      focusZoom,
+      {
+        x: mapContainer.clientWidth / 2 - (centerX + explodeOffset.x - bounds.minX) * focusZoom,
+        y: mapContainer.clientHeight / 2 - (centerY + explodeOffset.y - bounds.minY) * focusZoom,
+      },
+      SECTION_FOCUS_TRANSITION_MS,
+    );
+  }, [isActive, section, bounds, explodeOffset]);
+
+  const coverPath = useMemo(() => {
+    const firstRow = section.rows[0];
+    const lastRow = section.rows[section.rows.length - 1];
+    const firstSeat = firstRow?.seats[0];
+    if (!firstRow || !lastRow || !firstSeat) return '';
+
+    let d = `M ${firstSeat.x} ${firstSeat.y}`;
+
+    for (let i = 1; i < firstRow.seats.length; i++) {
+      const s = firstRow.seats[i];
+      if (s) d += ` L ${s.x} ${s.y}`;
+    }
+
+    for (let i = lastRow.seats.length - 1; i >= 0; i--) {
+      const s = lastRow.seats[i];
+      if (s) d += ` L ${s.x} ${s.y}`;
+    }
+
+    d += ' Z';
+    return d;
+  }, [section]);
+
   const toggleActive = () => {
-    const newActiveId = isActive ? null : section.id;
-    setActiveSection(newActiveId);
-    if (newActiveId) setZoom(8);
+    setActiveSection(isActive ? null : section.id);
   };
 
   return (
