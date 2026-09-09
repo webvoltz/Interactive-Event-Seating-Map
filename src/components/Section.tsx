@@ -4,15 +4,16 @@ import type { Section } from '../interfaces/venue.interfaces';
 import type { VenueContentBounds } from '../utils/venueBounds';
 import Seats from './Seat';
 
+const FOCUS_ZOOM = 8;
+
 function Section({ section, bounds }: { section: Section; bounds: VenueContentBounds }) {
   const activeSectionId = useVenueStore((s) => s.activeSectionId);
-  const setZoom = useVenueStore((s) => s.setZoom);
   const setActiveSection = useVenueStore((s) => s.setActiveSection);
 
   const isActive = activeSectionId === section.id;
 
   useEffect(() => {
-    if (!isActive) return undefined;
+    if (!isActive) return;
 
     let minX = Infinity,
       minY = Infinity,
@@ -30,27 +31,13 @@ function Section({ section, bounds }: { section: Section; bounds: VenueContentBo
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
 
-    const timer = setTimeout(() => {
-      const mapContainer = document.querySelector('main.overflow-auto');
-      if (mapContainer) {
-        const currentZoom = useVenueStore.getState().zoom;
-        // The SVG's own pixel origin is the viewBox's top-left corner
-        // (bounds.minX/minY, cropped to the venue's content - see
-        // VenueMap.tsx), not absolute coordinate (0, 0), so that offset
-        // has to be subtracted before scaling by zoom.
-        const scrollX = (centerX - bounds.minX) * currentZoom - mapContainer.clientWidth / 2;
-        const scrollY = (centerY - bounds.minY) * currentZoom - mapContainer.clientHeight / 2;
+    const mapContainer = document.getElementById('map-viewport');
+    if (!mapContainer) return;
 
-        mapContainer.scrollTo({
-          left: Math.max(0, scrollX),
-          top: Math.max(0, scrollY),
-          behavior: 'smooth',
-        });
-      }
-    }, 150);
-    return () => {
-      clearTimeout(timer);
-    };
+    useVenueStore.getState().setView(FOCUS_ZOOM, {
+      x: mapContainer.clientWidth / 2 - (centerX - bounds.minX) * FOCUS_ZOOM,
+      y: mapContainer.clientHeight / 2 - (centerY - bounds.minY) * FOCUS_ZOOM,
+    });
   }, [isActive, section, bounds]);
 
   const coverPath = useMemo(() => {
@@ -112,9 +99,7 @@ function Section({ section, bounds }: { section: Section; bounds: VenueContentBo
   }, [section]);
 
   const toggleActive = () => {
-    const newActiveId = isActive ? null : section.id;
-    setActiveSection(newActiveId);
-    if (newActiveId) setZoom(8);
+    setActiveSection(isActive ? null : section.id);
   };
 
   return (
