@@ -21,7 +21,6 @@ export default function BookingHistoryPanel({ venue }: BookingHistoryPanelProps)
   const viewBooking = useVenueStore((s) => s.viewBooking);
   const clearViewingBooking = useVenueStore((s) => s.clearViewingBooking);
   const setActiveSection = useVenueStore((s) => s.setActiveSection);
-  const setZoom = useVenueStore((s) => s.setZoom);
 
   const seatIndex = useMemo(() => buildSeatIndex(venue), [venue]);
 
@@ -38,7 +37,6 @@ export default function BookingHistoryPanel({ venue }: BookingHistoryPanelProps)
     const firstEntry = firstSeatId ? seatIndex.get(firstSeatId) : undefined;
     if (firstEntry) {
       setActiveSection(firstEntry.sectionId);
-      setZoom(8); // Matches Section.tsx's own zoom-in level.
     }
     viewBooking(booking.id);
   };

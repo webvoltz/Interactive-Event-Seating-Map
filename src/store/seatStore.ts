@@ -32,9 +32,11 @@ interface VenueState {
   // active seat *selection* (selectedSeats) which drives the checkout flow.
   viewingBookingId: string | null;
   zoom: number;
+  pan: { x: number; y: number };
   feedback: Feedback | null;
   setActiveSection: (id: string | null) => void;
-  setZoom: (zoom: number) => void;
+  setPan: (pan: { x: number; y: number }) => void;
+  setView: (zoom: number, pan: { x: number; y: number }) => void;
   toggleSeat: (seatId: string) => void;
   clearSelection: () => void;
   confirmPurchase: (total: number) => void;
@@ -106,9 +108,11 @@ export const useVenueStore = create<VenueState>()(
       bookings: [],
       viewingBookingId: null,
       zoom: 0.4,
+      pan: { x: 0, y: 0 },
       feedback: null,
       setActiveSection: (id) => set({ activeSectionId: id }),
-      setZoom: (zoom) => set({ zoom }),
+      setPan: (pan) => set({ pan }),
+      setView: (zoom, pan) => set({ zoom, pan }),
 
       toggleSeat: (seatId) =>
         set((state) => {
