@@ -133,7 +133,7 @@ decisions and where they'd need to change at greater scale.
   build, `commit-msg` → commitlint)
 - **Commit convention**: Conventional Commits, enforced by commitlint
 - **Secret scanning**: Gitleaks (local pre-commit + full-history scan in CI)
-- **CI**: GitHub Actions (`secret-scan`, `quality`, `commitlint`, `test`, `build`)
+- **CI**: GitHub Actions (`secret-scan`, `dependency-audit`, `quality`, `commitlint`, `test`, `build`)
 
 See [Engineering standards](#-engineering-standards) below for details.
 
@@ -163,7 +163,7 @@ See [Engineering standards](#-engineering-standards) below for details.
 │   │                          # booking history, feedback)
 │   ├── interfaces/
 │   │   └── venue.interfaces.ts
-│   ├── utils/         # rowLetter, seatIndex, venueBounds
+│   ├── utils/         # rowLetter, seatIndex, venueBounds, viewTransform (pan/zoom math)
 │   ├── test/
 │   │   └── setup.ts          # Vitest + Testing Library setup
 │   ├── App.tsx
@@ -244,7 +244,9 @@ Existing tests cover seat selection/deselection, the 8-seat selection cap, clear
 the persisted-seats/sold-seats/booking-history `localStorage` round trip, and keyboard navigation
 (arrow keys, Enter/Space, skipping unavailable seats) - see
 [`src/store/seatStore.test.ts`](src/store/seatStore.test.ts) and
-[`src/components/Seat.test.tsx`](src/components/Seat.test.tsx).
+[`src/components/Seat.test.tsx`](src/components/Seat.test.tsx). Pan/zoom math (fit-to-screen,
+zoom-at-pointer, pan clamping) is covered separately in
+[`src/utils/viewTransform.test.ts`](src/utils/viewTransform.test.ts).
 
 ---
 
@@ -312,15 +314,16 @@ GitHub Actions independently re-scans full repository history with the same pinn
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request:
+`.github/workflows/ci.yml` runs on every push and pull request, gated in stages via `needs`:
 
-| Job           | What it does                                                                   |
-| ------------- | ------------------------------------------------------------------------------ |
-| `secret-scan` | Gitleaks over full repository history.                                         |
-| `quality`     | `pnpm run quality` (format check, lint, typecheck).                            |
-| `commitlint`  | Lints the commit range being pushed/merged.                                    |
-| `test`        | `pnpm test` (V8 coverage, checked against the thresholds in `vite.config.ts`). |
-| `build`       | `pnpm run build`.                                                              |
+| Job                | Needs                             | What it does                                                                   |
+| ------------------ | --------------------------------- | ------------------------------------------------------------------------------ |
+| `secret-scan`      | -                                 | Gitleaks over full repository history.                                         |
+| `dependency-audit` | -                                 | `pnpm run security:audit` (`pnpm audit --audit-level high`).                   |
+| `quality`          | `secret-scan`, `dependency-audit` | `pnpm run quality` (format check, lint, typecheck).                            |
+| `commitlint`       | `secret-scan`, `dependency-audit` | Lints the commit range being pushed/merged.                                    |
+| `test`             | `quality`, `commitlint`           | `pnpm test` (V8 coverage, checked against the thresholds in `vite.config.ts`). |
+| `build`            | `test`                            | `pnpm run build`.                                                              |
 
 All jobs must pass before merging.
 
