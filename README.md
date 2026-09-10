@@ -219,6 +219,17 @@ The app expects seat data at `public/venue.json`; a sample file is already check
 pnpm run generate:venue
 ```
 
+### Running a Production Build
+
+```bash
+pnpm run build
+pnpm start
+```
+
+`pnpm start` (an alias for `vite preview`) serves the `dist/` output from `pnpm run build` - use it
+to sanity-check the actual production bundle, or to satisfy hosting platforms that expect a
+`start` script.
+
 ---
 
 ## 🔒 Environment Variables
