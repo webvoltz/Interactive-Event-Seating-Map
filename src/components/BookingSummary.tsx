@@ -5,6 +5,7 @@ import { buildSeatIndex, getTier } from '../utils/seatIndex';
 import SeatSelectionPanel from './SeatSelectionPanel';
 import SeatSelectionFooter from './SeatSelectionFooter';
 import BookingHistoryPanel from './BookingHistoryPanel';
+import BestSeatsFinder from './BestSeatsFinder';
 
 interface BookingSummaryProps {
   venue: Venue;
@@ -62,6 +63,8 @@ export default function BookingSummary({ venue }: BookingSummaryProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <BestSeatsFinder venue={venue} />
+
         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
           <h2 className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-3">
             Price Tiers

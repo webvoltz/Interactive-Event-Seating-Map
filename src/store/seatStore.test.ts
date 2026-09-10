@@ -111,6 +111,50 @@ describe('seatStore', () => {
     expect(useVenueStore.getState().viewingBookingId).toBeNull();
   });
 
+  it('selectSeatBlock replaces the current selection rather than merging into it', () => {
+    useVenueStore.getState().toggleSeat('SEAT-unrelated');
+    useVenueStore.getState().selectSeatBlock(['SEAT-1', 'SEAT-2', 'SEAT-3'], 'S-1');
+
+    const { selectedSeats } = useVenueStore.getState();
+    expect(Array.from(selectedSeats).sort()).toEqual(['SEAT-1', 'SEAT-2', 'SEAT-3']);
+  });
+
+  it('selectSeatBlock sets activeSectionId in the same update', () => {
+    useVenueStore.getState().selectSeatBlock(['SEAT-1'], 'S-4');
+    expect(useVenueStore.getState().activeSectionId).toBe('S-4');
+  });
+
+  it('selectSeatBlock clears any booking currently being viewed', () => {
+    useVenueStore.getState().viewBooking('BK-1');
+    useVenueStore.getState().selectSeatBlock(['SEAT-1'], 'S-1');
+    expect(useVenueStore.getState().viewingBookingId).toBeNull();
+  });
+
+  it('selectSeatBlock refuses more than MAX_SELECTABLE_SEATS ids and leaves the selection untouched', () => {
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    const tooMany = Array.from({ length: MAX_SELECTABLE_SEATS + 1 }, (_, i) => `SEAT-block-${i}`);
+
+    useVenueStore.getState().selectSeatBlock(tooMany, 'S-1');
+
+    expect(Array.from(useVenueStore.getState().selectedSeats)).toEqual(['SEAT-1']);
+    expect(useVenueStore.getState().feedback).toEqual({
+      type: 'error',
+      message: `You can select a maximum of ${MAX_SELECTABLE_SEATS} seats.`,
+    });
+  });
+
+  it('selectSeatBlock with an empty array leaves the selection untouched', () => {
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    useVenueStore.getState().selectSeatBlock([], 'S-1');
+    expect(Array.from(useVenueStore.getState().selectedSeats)).toEqual(['SEAT-1']);
+  });
+
+  it('a seat chosen via selectSeatBlock can still be individually deselected via toggleSeat', () => {
+    useVenueStore.getState().selectSeatBlock(['SEAT-1', 'SEAT-2'], 'S-1');
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    expect(Array.from(useVenueStore.getState().selectedSeats)).toEqual(['SEAT-2']);
+  });
+
   it('viewBooking and clearViewingBooking control which booking is highlighted', () => {
     useVenueStore.getState().viewBooking('BK-1');
     expect(useVenueStore.getState().viewingBookingId).toBe('BK-1');
