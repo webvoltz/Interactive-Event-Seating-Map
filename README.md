@@ -48,11 +48,14 @@ flowchart TD
     D -->|inactive| E["Collapsed &lt;path&gt; cover shape<br/>(1 SVG node per section)"]
     D -->|active| F["Seats<br/>(memoized)"]
     F --> G["~1,500 &lt;rect&gt; seat nodes<br/>(one section's worth)"]
-    A --> H["seatStore (Zustand)<br/>selection · zoom · active section"]
-    H -.->|persist selectedSeats| I[(localStorage)]
+    A --> H["seatStore (Zustand)<br/>selection · holds · zoom · active section"]
+    H -.->|persist selectedSeats + deadline| I[(localStorage)]
     F -.reads/writes.-> H
     A --> J[Toast<br/>aria-live feedback]
     H -.->|feedback| J
+    A --> K["HoldRuntime<br/>(renders nothing)"]
+    K -.expiry timer.-> H
+    K <-.BroadcastChannel.-> L["Other tabs"]
 ```
 
 ### 15,000+ seat rendering: section-level collapsing
@@ -89,6 +92,50 @@ so `localStorage` only ever stores an array, while the in-memory store keeps `O(
 See [`docs/engineering-notes.md`](docs/engineering-notes.md) for the tradeoffs behind these
 decisions and where they'd need to change at greater scale.
 
+### Best-seats solver
+
+[`findBestSeats.ts`](src/utils/findBestSeats.ts) finds the single best contiguous block of N seats
+for a party in a single pass over the venue (O(seats × party size)), ranked by a strict,
+deterministic total order - "Best view" sorts by row distance from the stage, then how centered the
+block is _within its row's own `col` range_ (not x/y - see the comment in that file for why arc
+position, not geometry, is the right unit), then price; "Best price" sorts the same way but leads
+with price. The last two keys (section, starting seat) exist purely to break ties, so the same
+query always returns the same seats rather than depending on `venue.json`'s array order.
+[`BestSeatsFinder.tsx`](src/components/BestSeatsFinder.tsx) runs it against live availability
+(`venue.json` status, seats sold this session, and any live hold - see below) and focuses/selects
+the winning block in one atomic store update.
+
+### Live seat-hold contention
+
+Real ticketing sites don't just mark seats "held" once and forget - holds expire, and two people
+(or two tabs) can race for the same seat. This project simulates that without a backend:
+
+- **A checkout timer.** Selecting a seat starts a 5-minute deadline ([`seatStore.ts`](src/store/seatStore.ts)'s
+  `selectionExpiresAt`, persisted so a refresh doesn't grant an unlimited hold). It's surfaced as
+  [`CheckoutTimer.tsx`](src/components/CheckoutTimer.tsx), driven by [`useCountdown.ts`](src/hooks/useCountdown.ts) -
+  the countdown owns its own render loop and never touches the store on a tick, so it can't cause
+  the seat layer to re-render.
+- **The sample `held` seats actually expire.** [`holdSimulation.ts`](src/utils/holdSimulation.ts)
+  seeds every JSON-`held` seat with a real, staggered expiry at runtime (never baked into the
+  committed file, which would just be stale on the next load) using a deterministic hash of the
+  seat id - reproducible, but spread across a window so seats visibly release a few at a time
+  instead of all at once.
+- **Cross-tab sync.** [`holdChannel.ts`](src/utils/holdChannel.ts) wraps `BroadcastChannel` behind
+  an injectable, feature-detected transport (it degrades to a no-op, single-tab mode when the API
+  is unavailable - which is also exactly the situation under Vitest/jsdom, so the same code path is
+  what the tests exercise). [`holdProtocol.ts`](src/utils/holdProtocol.ts) has the actual protocol
+  as pure, unit-tested reducers: a join-time handshake, full-set-replacement hold messages (so a
+  dropped packet self-heals on the next change instead of leaving a stale hold), and a
+  deterministic tie-break (lower session id wins) for the case where two tabs select the same seat
+  in the same instant.
+- **One resolver, one source of truth.** [`seatStatus.ts`](src/utils/seatStatus.ts) centralizes
+  `sold` → `held` → `selected` → `reserved` → `available` precedence into a single pure function,
+  replacing what used to be scattered boolean checks in `Seat.tsx`.
+- **Never re-renders the seat layer on a timer.** Pruning a lapsed hold (`pruneHolds` in
+  `holdProtocol.ts`) returns the _same_ Map reference when nothing has actually expired, so a
+  routine tick with nothing to do costs zero re-renders across the ~1,500 mounted seats - verified
+  by a reference-equality (`toBe`) test, not just a behavioral one.
+
 ---
 
 ## ♿ Accessibility
@@ -108,6 +155,11 @@ decisions and where they'd need to change at greater scale.
 ## 🚀 Features
 
 - **Large-scale rendering**: Thousands of seats render smoothly using SVG optimization.
+- **Best-seats solver**: Pick a party size and priority ("Best view" or "Best price") and find the
+  single best contiguous block of adjacent seats, ranked by a deterministic algorithm.
+- **Live seat-hold contention**: Selecting seats starts a real 5-minute checkout timer; the sample
+  `held` seats expire and release on their own; two browser tabs share holds and sales live via
+  `BroadcastChannel`, with a deterministic tie-break if they pick the same seat at once.
 - **Map navigation**: Click-and-drag panning with smart zoom in/out controls.
 - **Accessibility**: Full arrow-key navigation between seats, keyboard-selectable seats (`role="checkbox"`).
 - **Persisted selection**: Selected seats survive a page refresh (Zustand + `localStorage`).
@@ -154,18 +206,24 @@ See [Engineering standards](#-engineering-standards) below for details.
 │   └── generateVenue.ts     # Generates public/venue.json
 ├── src/
 │   ├── components/    # VenueMap, Section, Seat, BookingSummary, SeatSelectionPanel,
-│   │                   # SeatSelectionFooter, BookingHistoryPanel, ConfirmDialog, Toast,
-│   │                   # Icon, IconButton
+│   │                   # SeatSelectionFooter, BookingHistoryPanel, BestSeatsFinder,
+│   │                   # CheckoutTimer, HoldRuntime, ConfirmDialog, Toast, Icon, IconButton
 │   ├── hooks/
-│   │   └── useVenue.ts       # Fetches and validates public/venue.json
+│   │   ├── useVenue.ts        # Fetches and validates public/venue.json
+│   │   ├── useCountdown.ts    # Self-correcting per-second countdown, isolated from the store
+│   │   ├── useHoldExpiry.ts   # Arms one timer for the next hold/selection deadline
+│   │   └── useHoldSync.ts     # Cross-tab BroadcastChannel wiring
 │   ├── store/
-│   │   └── seatStore.ts      # Zustand store (zoom, active section, selection, sold seats,
-│   │                          # booking history, feedback)
+│   │   └── seatStore.ts      # Zustand store (zoom, active section, selection + checkout
+│   │                          # deadline, holds, sold seats, booking history, feedback)
 │   ├── interfaces/
-│   │   └── venue.interfaces.ts
-│   ├── utils/         # rowLetter, seatIndex, venueBounds, viewTransform (pan/zoom math)
+│   │   └── venue.interfaces.ts   # Venue/seat types + the hold protocol's message types
+│   ├── utils/         # rowLetter, seatIndex, venueBounds, viewTransform (pan/zoom math),
+│   │                   # findBestSeats (best-seats solver), seatStatus (status resolver),
+│   │                   # holdProtocol/holdChannel/holdSimulation/sessionId/formatCountdown
 │   ├── test/
-│   │   └── setup.ts          # Vitest + Testing Library setup
+│   │   ├── setup.ts                  # Vitest + Testing Library setup
+│   │   └── fakeBroadcastChannel.ts   # In-memory multi-tab bus for testing the hold protocol
 │   ├── App.tsx
 │   └── main.tsx
 ├── .github/workflows/ci.yml  # CI pipeline
@@ -245,19 +303,23 @@ pnpm test
 ```
 
 Runs with V8 coverage enabled (`pnpm run security:audit` covers dependency vulnerabilities
-separately). Coverage thresholds in [`vite.config.ts`](vite.config.ts) are set to today's actual
-numbers as a regression floor, not the org standard's targets (branches 85% / functions 100% /
-lines 90% / statements 90%) - most components don't have tests yet; see
+separately). Coverage thresholds in [`vite.config.ts`](vite.config.ts) are set just under today's
+actual numbers as a regression floor, not the org standard's targets (branches 85% / functions
+100% / lines 90% / statements 90%) - most components still don't have tests; see
 [`docs/engineering-notes.md`](docs/engineering-notes.md#known-remaining-gaps) for the honest
 current numbers and what closing that gap actually requires.
 
 Existing tests cover seat selection/deselection, the 8-seat selection cap, clearing the selection,
-the persisted-seats/sold-seats/booking-history `localStorage` round trip, and keyboard navigation
-(arrow keys, Enter/Space, skipping unavailable seats) - see
+the persisted-seats/sold-seats/booking-history/checkout-deadline `localStorage` round trip, and
+keyboard navigation (arrow keys, Enter/Space, skipping unavailable seats) - see
 [`src/store/seatStore.test.ts`](src/store/seatStore.test.ts) and
 [`src/components/Seat.test.tsx`](src/components/Seat.test.tsx). Pan/zoom math (fit-to-screen,
 zoom-at-pointer, pan clamping) is covered separately in
-[`src/utils/viewTransform.test.ts`](src/utils/viewTransform.test.ts).
+[`src/utils/viewTransform.test.ts`](src/utils/viewTransform.test.ts). The best-seats solver's
+ranking/tiebreak logic, the hold protocol's reducers (including a reference-equality test proving a
+no-op prune never triggers a re-render), the runtime hold simulation's determinism, and the
+checkout countdown's stable-announcement-band behavior each have their own dedicated, near-100%-covered
+test files under `src/utils/` and `src/hooks/`.
 
 ---
 

@@ -39,44 +39,90 @@ approach, accepting the accessibility rebuild that comes with it.
 
 `Section` and `Seats` (in [`Seat.tsx`](../src/components/Seat.tsx)) are both `React.memo`-wrapped so
 that panning/zooming or selecting a seat in one section doesn't re-render every other section's
-already-collapsed cover path. Within `Seats`, per-seat fill/stroke colors and the tier-color map are
-recomputed on every render of that component - acceptable at ~1,500 seats, but the first thing to
-hoist out (e.g., derive style from a lookup keyed by `status`/`priceTier` computed once) if a
-section's seat count grows materially.
+already-collapsed cover path. Per-seat fill/stroke/text-color used to be recomputed via an if/else
+ladder on every render; [`seatStatus.ts`](../src/utils/seatStatus.ts)'s `SEAT_STATUS_STYLE` replaced
+that with a lookup keyed by effective status, computed once at module scope. The one thing that
+lookup can't express is that an _available_ seat's stroke also depends on its own price tier -
+`Seat.tsx` still applies that as a small override after the lookup.
+
+A second render-cost fix landed alongside the live-hold work: `Seats` used to subscribe to the raw
+`zoom` number just to derive a `showLabels` boolean, which meant all ~1,500 mounted seats re-rendered
+on _every_ wheel/zoom event regardless of whether the threshold was actually crossed. It now
+subscribes to `zoom >= LABEL_ZOOM_THRESHOLD` directly - a boolean that only changes value when the
+threshold is crossed, so Zustand's default `Object.is` equality skips the re-render otherwise. This
+was a prerequisite for adding the `holds`/`simulationSeeded` subscriptions the resolver needs,
+not just a nicety on its own.
 
 ## `localStorage` persistence limits
 
-[`seatStore.ts`](../src/store/seatStore.ts) persists `selectedSeats` to `localStorage` via a custom
-`PersistStorage` that serializes the `Set<string>` to a plain array. This is enough for the current
-scope (survive a page refresh, single device, no login) but has real limits:
+[`seatStore.ts`](../src/store/seatStore.ts) persists `selectedSeats`, `soldSeats`, `bookings`, and
+`selectionExpiresAt` to `localStorage` via a custom `PersistStorage` that serializes `Set<string>`
+to a plain array. This is enough for the current scope (survive a page refresh, single device, no
+login) but has real limits:
 
 - `localStorage` has a per-origin size ceiling (typically ~5–10MB depending on browser) - irrelevant
   at 8 selected seats, but the pattern shouldn't be reused to persist large datasets.
-- No cross-device or cross-session sync - selections don't follow a user between browsers or
-  devices, and there's no server-side hold/reservation, so two tabs (or two people) could both
-  believe they've selected the same seat.
-- A real backend would replace this with a server-held reservation (with a TTL/hold expiry) and use
-  `localStorage` only as an optimistic local echo, not the source of truth.
+- No cross-device sync - a selection doesn't follow a user to a different browser or device, and
+  there's no server-side inventory, so two different people (or the same person on two devices)
+  could still both believe they've bought the same seat.
+- **Cross-_tab_ contention on one browser is now handled** (not cross-device) - see
+  [`holdProtocol.ts`](../src/utils/holdProtocol.ts) and the "Live seat-hold contention" section
+  below. `holds` and `selectionExpiresAt`'s live countdown are deliberately kept _out_ of
+  `partialize`/only partially persisted: holds are time-based shared state that would fight
+  `BroadcastChannel` sync if `localStorage` were also treated as a source of truth for them.
+- A real backend would still replace all of this with a server-held reservation (a TTL/hold expiry
+  enforced by a server nothing stops a client from lying about) and use `localStorage` only as an
+  optimistic local echo, not the source of truth.
+
+## Live seat-hold contention: the performance guarantee, and its real limits
+
+[`useHoldExpiry.ts`](../src/hooks/useHoldExpiry.ts) arms exactly one `setTimeout` for whichever
+comes soonest - a tracked hold lapsing or this tab's own checkout deadline - rather than polling.
+On fire, it calls `runExpiry()` in [`seatStore.ts`](../src/store/seatStore.ts), which prunes via
+[`holdProtocol.ts`](../src/utils/holdProtocol.ts)'s `pruneHolds()`. That function returns the
+**same** `Map` reference when nothing has actually lapsed, and the store skips its `set()` call
+entirely in that case - so a routine tick with nothing to do costs zero re-renders across the
+~1,500 mounted seats, not "one small one." This is asserted with a reference-equality (`toBe`) test
+in `seatStore.test.ts`, specifically so a future refactor that starts always returning a new `Map`
+fails a test instead of silently reintroducing a per-tick re-render.
+
+**What this simulation is honest about not being:** [`holdChannel.ts`](../src/utils/holdChannel.ts)'s
+`BroadcastChannel` transport only reaches other tabs of the _same browser on the same machine_ -
+there is no server, so two different visitors on two different computers still can't contend for
+the same seat here. The tie-break for a genuine same-instant conflict (lower session id wins,
+in [`holdProtocol.ts`](../src/utils/holdProtocol.ts)'s `ingestPeerHold`) is a deterministic
+convenience, not consensus - a real implementation would need a server to arbitrate. And the
+"simulated" holds seeded onto venue.json's static `held` seats are exactly that: a demonstration
+of the mechanism, not a claim about real inventory.
 
 ## Known remaining gaps
 
 - No virtualization within an active section's own seat list (see above).
 - The "Proceed to Pay" flow (see
   [`SeatSelectionFooter.tsx`](../src/components/SeatSelectionFooter.tsx)) is an intentional UI
-  stub - it shows an inline confirmation, not a real payment integration.
-- Seat availability (`sold`/`reserved`/`held`) is static sample data with no live update mechanism
-  (no websocket/polling) - a second user selecting the same seat isn't reflected without a refresh.
+  stub - it shows an inline confirmation, not a real payment integration. `confirmPurchase()` does
+  re-validate the checkout deadline before completing, so at least the "the hold ran out mid-pay"
+  failure mode is handled - see the "Live seat-hold contention" section above.
+- ~~Seat availability (`sold`/`reserved`/`held`) is static sample data with no live update
+  mechanism (no websocket/polling) - a second user selecting the same seat isn't reflected without
+  a refresh.~~ **Partly resolved**: `held` seats now expire and release on a real timer, and a
+  second seat-selecting _tab of the same browser_ is reflected live via `BroadcastChannel` (see
+  above). The remaining, honest limitation: this is same-browser only. Two different visitors on
+  two different machines still can't see each other's live selections - that needs a server
+  pushing real inventory changes, which this project deliberately doesn't have.
 - **Test coverage is well below the org engineering standard.** The standard
   ([`Webvoltz-Engineering-Standards/react`](../../Webvoltz-Engineering-Standards/react)) requires
   branches 85% / functions 100% / lines 90% / statements 90%. Actual project-wide coverage today
-  (`pnpm test`, V8 provider, whole `src/` tree): **statements 24.6%, branches 27.8%, functions
-  19.9%, lines 25.3%** - only `Seat.tsx` and `seatStore.ts` have real test coverage; `App.tsx`,
-  `VenueMap.tsx`, `Section.tsx`, `BookingSummary.tsx`, `SeatSelectionPanel.tsx`,
-  `SeatSelectionFooter.tsx`, `BookingHistoryPanel.tsx`, `ConfirmDialog.tsx`, `Icon.tsx`,
-  `IconButton.tsx`, `Toast.tsx`, `useVenue.ts`, and the `utils/` helpers have none. The thresholds
-  in [`vite.config.ts`](../vite.config.ts) are set to today's actual numbers (a floor against
-  regression), not the standard's targets - reaching those targets means writing real test suites
-  for all of the above, which is a substantial task on its own, not a quick config change.
+  (`pnpm test`, V8 provider, whole `src/` tree): **statements 54.1%, branches 56.2%, functions
+  49.4%, lines 55.1%** - up substantially since the best-seats solver and live-hold work added
+  ~15 new, near-100%-covered pure-logic modules under `src/utils/` and `src/hooks/`, but most
+  _components_ still have no tests: `App.tsx`, `VenueMap.tsx`, `Section.tsx`, `BookingSummary.tsx`,
+  `SeatSelectionFooter.tsx`, `BookingHistoryPanel.tsx`, `HoldRuntime.tsx`, `IconButton.tsx`,
+  `Toast.tsx`, and `useVenue.ts` have none. The thresholds in [`vite.config.ts`](../vite.config.ts)
+  are ratcheted up alongside real coverage gains (set just under today's actual numbers as a floor
+  against regression), not set to the standard's targets - reaching those targets means writing
+  real test suites for all of the above, which is a substantial task on its own, not a quick config
+  change.
 - ~~CI's pnpm version pin doesn't match the actual pnpm in use~~ **Resolved**: standardized on
   pnpm 11.x, matching this project's actual dev environment (the one pnpm version proven to work
   here all session). `.github/workflows/ci.yml`'s `PNPM_VERSION` is now `'11'`, and
