@@ -3,6 +3,8 @@ import { useVenue } from './hooks/useVenue';
 import BookingSummary from './components/BookingSummary';
 import Toast from './components/Toast';
 import HoldRuntime from './components/HoldRuntime';
+import SeatStatusLegend from './components/SeatStatusLegend';
+import SelectionToolbar from './components/SelectionToolbar';
 import Icon from './components/Icon';
 import IconButton from './components/IconButton';
 import { useCallback, useEffect, useState, useRef } from 'react';
@@ -79,10 +81,8 @@ const App = () => {
 
   useEffect(() => {
     if (venue) {
-      // Check if we have selected seats from persistence
       const selectedSeats = useVenueStore.getState().selectedSeats;
       if (selectedSeats.size > 0) {
-        // Find the section containing the first selected seat
         const firstSeatId = Array.from(selectedSeats)[0];
         let sectionToOpen = null;
 
@@ -98,7 +98,7 @@ const App = () => {
 
         if (sectionToOpen) {
           useVenueStore.getState().setActiveSection(sectionToOpen);
-          return; // Skip default zoom
+          return;
         }
       }
 
@@ -275,11 +275,6 @@ const App = () => {
 
   return (
     <div className="flex flex-col lg:flex-row h-screen bg-gray-100 overflow-hidden">
-      {/* Below `lg:`, the sidebar is a full-screen drawer rather than a
-          persistent panel - a static 400px-wide sidebar leaves a tablet in
-          portrait mode (e.g. 768px wide) with less than half its width for
-          the map, which should stay the primary focus at every size below
-          desktop/laptop. */}
       {!showSidebar && (
         <button
           onClick={() => {
@@ -318,10 +313,6 @@ const App = () => {
         </div>
       </div>
 
-      {/* One persistent button rather than two swapping in/out - it slides
-          alongside the panel's own edge and its chevron rotates in place, so
-          toggling reads as one continuous motion instead of a button
-          vanishing and a different one popping in elsewhere. */}
       <IconButton
         icon="chevron-left"
         label={sidebarCollapsed ? 'Show panel' : 'Hide panel'}
@@ -335,12 +326,6 @@ const App = () => {
           sidebarCollapsed ? 'rotate-180' : ''
         }`}
       />
-      {/* Keeps looping the whole time the panel stays hidden (not a one-shot
-          flash) - the button's own slide is easy to miss on its own, so this
-          gives a continuous, unmistakable "the panel is hidden, click here
-          to bring it back" cue for as long as that's true. A separate
-          sibling element rather than a class on the button itself, so it
-          can't interfere with the button's own slide/rotate transitions. */}
       {sidebarCollapsed && (
         <span
           aria-hidden="true"
@@ -362,10 +347,6 @@ const App = () => {
       <main
         id="map-viewport"
         ref={mapContainerRef}
-        // Below `lg:`, the sidebar becomes a full-screen drawer over the
-        // map - inert while it's open so keyboard Tab can't reach the zoom
-        // controls or seats hidden behind it (mirrors the same pattern used
-        // for ConfirmDialog's backdrop).
         inert={showSidebar}
         className="flex-1 relative h-full bg-gray-200/50 overflow-hidden select-none"
         style={{ cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
@@ -391,6 +372,9 @@ const App = () => {
             className="mt-2"
           />
         </div>
+
+        <SeatStatusLegend />
+        <SelectionToolbar venue={venue} />
       </main>
 
       <Toast />
