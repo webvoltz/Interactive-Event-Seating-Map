@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
-import type { Row } from '../interfaces/venue.interfaces';
+import type { HoldMap, Row } from '../interfaces/venue.interfaces';
 import { useVenueStore } from '../store/seatStore';
 import Seats from './Seat';
+
+function holdMap(...holds: { seatId: string; owner: string; expiresAt: number }[]): HoldMap {
+  return new Map(holds.map((h) => [h.seatId, h]));
+}
 
 // Two aligned rows of three seats so Arrow{Up,Down} land on a predictable
 // nearest-x match, and Arrow{Left,Right} walk within a row.
@@ -49,6 +53,8 @@ const resetStore = () => {
     soldSeats: new Set(),
     zoom: 0.4,
     feedback: null,
+    holds: new Map(),
+    simulationSeeded: false,
   });
 };
 
@@ -119,5 +125,56 @@ describe('Seats keyboard navigation and selection', () => {
     expect(useVenueStore.getState().selectedSeats.has('A2')).toBe(false);
     expect(seatA2.getAttribute('tabindex')).toBe('-1');
     expect(seatA2.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('a live foreign hold renders as unavailable, and clicking it sets feedback instead of selecting', () => {
+    useVenueStore.setState({
+      holds: holdMap({ seatId: 'A2', owner: 'peer', expiresAt: Date.now() + 60_000 }),
+    });
+    renderSeats();
+    const seatA2 = getSeat('seat-A2');
+
+    expect(seatA2.getAttribute('aria-disabled')).toBe('true');
+    expect(seatA2.getAttribute('tabindex')).toBe('-1');
+    expect(seatA2.getAttribute('aria-label')).toContain('temporarily held by another customer');
+
+    fireEvent.click(seatA2);
+    expect(useVenueStore.getState().selectedSeats.has('A2')).toBe(false);
+    expect(useVenueStore.getState().feedback?.type).toBe('error');
+  });
+
+  it('becomes selectable again once its hold has lapsed, keeping focus on the same element', () => {
+    useVenueStore.setState({
+      holds: holdMap({ seatId: 'A2', owner: 'peer', expiresAt: Date.now() - 1 }),
+    });
+    renderSeats();
+    const seatA2 = getSeat('seat-A2');
+    seatA2.focus();
+
+    expect(seatA2.getAttribute('aria-disabled')).toBe('false');
+    fireEvent.click(seatA2);
+    expect(useVenueStore.getState().selectedSeats.has('A2')).toBe(true);
+    // Same DOM node throughout (stable `key`), so focus was never lost.
+    expect(document.activeElement).toBe(document.getElementById('seat-A2'));
+  });
+
+  it('a JSON-held seat reads as held before the simulation has seeded', () => {
+    const heldRows: Row[] = [
+      { index: 1, seats: [{ id: 'H1', col: 1, x: 0, y: 0, priceTier: 1, status: 'held' }] },
+    ];
+    render(<svg>{<Seats rows={heldRows} />}</svg>);
+    const seat = getSeat('seat-H1');
+    expect(seat.getAttribute('aria-disabled')).toBe('true');
+    expect(seat.getAttribute('aria-label')).toContain('temporarily held by another customer');
+  });
+
+  it('the same JSON-held seat reads as available once seeded, with no live hold record', () => {
+    useVenueStore.setState({ simulationSeeded: true });
+    const heldRows: Row[] = [
+      { index: 1, seats: [{ id: 'H1', col: 1, x: 0, y: 0, priceTier: 1, status: 'held' }] },
+    ];
+    render(<svg>{<Seats rows={heldRows} />}</svg>);
+    const seat = getSeat('seat-H1');
+    expect(seat.getAttribute('aria-disabled')).toBe('false');
   });
 });

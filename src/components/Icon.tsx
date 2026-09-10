@@ -12,6 +12,8 @@ const PATHS = {
   // Magnifying glass: a circle plus a short diagonal handle, on the same
   // 24x24 stroke viewBox as every other icon here.
   search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14ZM21 21l-4.35-4.35',
+  // Clock face: a circle plus two hands meeting at the centre.
+  clock: 'M12 8v4l3 3M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
 } as const;
 
 export type IconName = keyof typeof PATHS;

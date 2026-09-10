@@ -2,6 +2,7 @@ import VenueMap from './components/VenueMap';
 import { useVenue } from './hooks/useVenue';
 import BookingSummary from './components/BookingSummary';
 import Toast from './components/Toast';
+import HoldRuntime from './components/HoldRuntime';
 import Icon from './components/Icon';
 import IconButton from './components/IconButton';
 import { useCallback, useEffect, useState, useRef } from 'react';
@@ -393,6 +394,7 @@ const App = () => {
       </main>
 
       <Toast />
+      <HoldRuntime venue={venue} />
     </div>
   );
 };
