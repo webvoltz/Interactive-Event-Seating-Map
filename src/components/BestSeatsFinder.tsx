@@ -52,10 +52,6 @@ export default function BestSeatsFinder({ venue }: BestSeatsFinderProps) {
       return;
     }
 
-    // Selection first, then the description - so if selectSeatBlock ever
-    // refused (it can't here: findBestSeats never returns more than
-    // MAX_SELECTABLE_SEATS seats since partySize is capped by the <select>
-    // below), the success copy wouldn't overwrite a real error.
     selectSeatBlock(block.seatIds, block.sectionId);
     setFeedback({ type: 'info', message: describeBlock(block) });
   };

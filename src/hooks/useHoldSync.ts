@@ -12,11 +12,6 @@ import { createHoldChannel } from '../utils/holdChannel';
 import { seedSimulatedHolds } from '../utils/holdSimulation';
 import { getSessionId } from '../utils/sessionId';
 
-// Cross-tab wiring: joins the hold channel, answers/asks the join-time
-// handshake, seeds the demo simulation if no incumbent replies in time, and
-// keeps outbound broadcasts diff-driven rather than wired into the store's
-// own actions - toggleSeat/clearSelection/confirmPurchase/runExpiry all
-// broadcast correctly without knowing this hook exists.
 export function useHoldSync(
   venue: Venue,
   channelFactory?: (name: string) => BroadcastChannelLike | null,
@@ -32,9 +27,6 @@ export function useHoldSync(
       useVenueStore.getState().seedSimulation(holds);
     };
 
-    // Mutable, closure-local mirrors of what was last broadcast - not store
-    // state, since they exist purely to diff against for outbound sync and
-    // have no meaning to the rest of the app.
     let lastSelected = new Set<string>();
     let lastExpiresAt: number | null = null;
     let lastSold = new Set<string>();
@@ -55,10 +47,6 @@ export function useHoldSync(
 
       switch (message.type) {
         case 'hello': {
-          // Reply with everything I currently know - my own peer holds
-          // plus my own live selection, expressed the same way a `hold`
-          // would be, so the newcomer's adoption logic doesn't need a
-          // special case for "the incumbent's own cart".
           const mine = Array.from(state.selectedSeats, (seatId) => ({
             seatId,
             owner: sessionId,
@@ -98,11 +86,7 @@ export function useHoldSync(
         }
 
         case 'sold': {
-          // Update the outbound diff baseline BEFORE applying the change:
-          // applyRemoteSold's set() notifies subscribers (including this
-          // hook's own broadcaster) synchronously, so without this the
-          // seats just learned about here would look "newly sold by me"
-          // and bounce straight back onto the channel.
+          // Update lastSold before applying, or this bounces straight back onto the channel.
           message.seatIds.forEach((id) => lastSold.add(id));
           useVenueStore.getState().applyRemoteSold(message.seatIds);
           return;
@@ -152,8 +136,6 @@ export function useHoldSync(
       ownedSeatIds: Array.from(useVenueStore.getState().selectedSeats),
     });
 
-    // No transport at all means no incumbent could ever reply - seed
-    // immediately rather than waiting out a timeout that can't resolve.
     let syncTimeoutId = 0;
     if (channel.available) {
       syncTimeoutId = window.setTimeout(seedFreshSimulation, SYNC_TIMEOUT_MS);

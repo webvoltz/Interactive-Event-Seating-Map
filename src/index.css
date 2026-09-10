@@ -18,17 +18,11 @@
   --color-brand-from: #60a5fa;
   --color-brand-to: #818cf8;
 
-  /* Ring shown on a sold seat while its booking is open in Booking History */
   --color-booking-highlight: #7c3aed;
-
-  /* Checkout countdown once under a minute remains */
   --color-hold-warning: #d97706;
 }
 
-/* Plays once when a seat's rect gains this class (i.e. the instant it
-   becomes selected) - not a looping blink, since the class stays applied
-   for as long as the seat stays selected and CSS animations don't repeat
-   on their own without `infinite`. */
+/* Plays once, on selection. */
 @keyframes seat-select-pop {
   0% {
     transform: scale(0.75);
@@ -56,10 +50,7 @@
   }
 }
 
-/* Plays once whenever a Section's active/collapsed content mounts (opening
-   or closing it) - React swaps the two branches instantly with no
-   transition of its own, so without this the seats (or the collapsed cover
-   shape) would just snap into view. */
+/* Plays on mount, opening or closing a section. */
 @keyframes section-activate {
   from {
     opacity: 0;
@@ -79,10 +70,7 @@
   }
 }
 
-/* Continuous (not one-shot) - this is a standing "you're looking at this
-   booking's seats" indicator for as long as Booking History has one open,
-   not a celebratory flash, so it loops for the whole time rather than
-   playing once. */
+/* Loops continuously while a booking's seats are highlighted. */
 @keyframes seat-highlight-pulse {
   0%,
   100% {
@@ -105,9 +93,7 @@
   }
 }
 
-/* Continuous, and only applied for the checkout timer's final 30 seconds -
-   a last, harder-to-miss cue on top of the amber color swap that already
-   happens earlier, once the deadline is genuinely close. */
+/* Loops during the checkout timer's final 30 seconds. */
 @keyframes hold-timer-pulse {
   0%,
   100% {

@@ -33,9 +33,6 @@ export default function CheckoutTimer() {
           <Icon name="clock" className="w-3.5 h-3.5" />
           Seats held for
         </span>
-        {/* The ticking digits are silent to assistive tech - see the
-            aria-live sibling below, which announces stable milestone bands
-            instead of every second. */}
         <span
           aria-hidden="true"
           className={`font-mono text-sm font-bold ${isUrgent ? 'text-amber-700' : 'text-gray-800'}`}

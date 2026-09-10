@@ -20,15 +20,8 @@ const TIER_STROKE: Record<number, string> = {
   3: 'var(--color-tier-3)',
 };
 
-// A near-square seat with a light radius reads as a seat, not a dot, once
-// zoomed in - a plain circle-reading dot only happened because the previous
-// rx (0.5) was half the shape's own width, which looks circular at any scale.
 const SEAT_SIZE = 3;
 const SEAT_RADIUS = 0.35;
-
-// Seat numbers/row letters are only worth mounting once they'd actually be
-// legible - below this zoom they'd just be illegible flyspecks, so skip the
-// extra ~1,500 text nodes entirely rather than render invisible detail.
 const LABEL_ZOOM_THRESHOLD = 2;
 
 const Seats = memo(function Seats({ rows }: SeatsProps) {
@@ -40,20 +33,9 @@ const Seats = memo(function Seats({ rows }: SeatsProps) {
   const viewingBookingId = useVenueStore((s) => s.viewingBookingId);
   const toggleSeat = useVenueStore((s) => s.toggleSeat);
   const setFeedback = useVenueStore((s) => s.setFeedback);
-  // A boolean selector, not the raw zoom value - all ~1,500 seats in the
-  // active section would otherwise re-render on every wheel/zoom event
-  // (Zustand's default equality is Object.is, so a boolean that doesn't
-  // change produces no re-render; the raw zoom number changes constantly).
   const showLabels = useVenueStore((s) => s.zoom >= LABEL_ZOOM_THRESHOLD);
-
-  // Computed once per render of this component, not once per seat - a
-  // countdown-precision read isn't needed here, just "is this hold still
-  // live right now".
   const now = Date.now();
 
-  // Seats belonging to whichever past booking is currently being viewed
-  // from Booking History, if any - highlighted on top of their normal
-  // status coloring (almost always "sold") rather than replacing it.
   const highlightedSeatIds = useMemo(() => {
     if (!viewingBookingId) return null;
     const booking = bookings.find((b) => b.id === viewingBookingId);
@@ -70,9 +52,6 @@ const Seats = memo(function Seats({ rows }: SeatsProps) {
       toggleSeat(seat.id);
       e.currentTarget.focus();
     } else {
-      // A seat can go from available to held between paint and click now
-      // (another tab, or the simulation) - a silent no-op would look broken
-      // in exactly that case, so say why nothing happened.
       setFeedback({ type: 'error', message: 'That seat is no longer available.' });
     }
   };
@@ -147,19 +126,12 @@ const Seats = memo(function Seats({ rows }: SeatsProps) {
           const style = SEAT_STATUS_STYLE[status];
           const { fill, textColor } = style;
           let { stroke, strokeWidth } = style;
-          // The only piece of styling the status table can't express - an
-          // available seat's stroke depends on its own price tier, not
-          // just its status.
           if (status === 'available') {
             stroke = TIER_STROKE[seat.priceTier] ?? stroke;
           }
 
           const isHighlighted = highlightedSeatIds?.has(seat.id) ?? false;
           if (isHighlighted) {
-            // Layered on top of whatever status color already applies
-            // (almost always "sold") rather than replacing it, so the seat
-            // still reads as sold while also standing out as "part of the
-            // booking you're viewing".
             stroke = 'var(--color-booking-highlight)';
             strokeWidth = 0.5;
           }
@@ -193,9 +165,6 @@ const Seats = memo(function Seats({ rows }: SeatsProps) {
                 stroke={stroke}
                 strokeWidth={strokeWidth}
                 className={[
-                  // A thin, clearly-visible ring - not thick enough to
-                  // swallow most of the seat's own fill/number the way a
-                  // near-half-width stroke would.
                   !isUnavailable &&
                     'group-focus/seat:stroke-blue-600 group-focus/seat:stroke-[0.5px]',
                   isSelected && 'seat-select-pop',
@@ -232,8 +201,6 @@ const Seats = memo(function Seats({ rows }: SeatsProps) {
           const first = row.seats[0];
           const second = row.seats[1];
           if (!first || !second) return null;
-          // One seat-step further back along the row's own curve, so the
-          // label sits where "the next seat to the left" would be.
           const labelX = first.x + (first.x - second.x);
           const labelY = first.y + (first.y - second.y);
 

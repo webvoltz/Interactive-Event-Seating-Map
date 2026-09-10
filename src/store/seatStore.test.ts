@@ -3,9 +3,6 @@ import type { HoldMap } from '../interfaces/venue.interfaces';
 import { SELECTION_HOLD_MS } from '../utils/holdProtocol';
 import { MAX_SELECTABLE_SEATS, useVenueStore } from './seatStore';
 
-// Throwing (rather than `expect(raw).not.toBeNull()` + a `!` at the call
-// site) gives TypeScript a real narrowing point, and still fails the test
-// with a clear message if persistence didn't happen as expected.
 function getPersistedRaw(): string {
   const raw = localStorage.getItem('venue-storage');
   if (raw === null) throw new Error('Expected venue-storage to be persisted in localStorage.');
@@ -218,8 +215,7 @@ describe('seatStore', () => {
       const holds = holdMap('SEAT-1', 9_000);
       useVenueStore.setState({ holds });
       useVenueStore.getState().runExpiry(1_000);
-      // Reference identity (`toBe`), not just equal contents - this is what
-      // lets a routine tick skip re-rendering ~1,500 mounted seats.
+      // toBe, not toEqual - reference identity is what skips a re-render.
       expect(useVenueStore.getState().holds).toBe(holds);
     });
 
@@ -311,20 +307,15 @@ describe('seatStore', () => {
     useVenueStore.getState().toggleSeat('SEAT-1');
     useVenueStore.getState().toggleSeat('SEAT-2');
 
-    // Zustand's persist middleware writes to storage asynchronously (microtask).
     await Promise.resolve();
 
     const raw = getPersistedRaw();
-    // Asserting the shape here (rather than writing a full type guard) is
-    // fine specifically because this is the exact data this test just wrote
-    // two lines above via toggleSeat() - not untrusted external input.
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     const parsed = JSON.parse(raw) as unknown as {
       state: { selectedSeats: string[]; soldSeats: string[] };
     };
     expect(parsed.state.selectedSeats.sort()).toEqual(['SEAT-1', 'SEAT-2']);
 
-    // Simulate a fresh load: reset in-memory state, then rehydrate from the same storage key.
     useVenueStore.setState({ selectedSeats: new Set() });
     const rehydrated = new Set(parsed.state.selectedSeats);
     useVenueStore.setState({ selectedSeats: rehydrated });
@@ -340,13 +331,10 @@ describe('seatStore', () => {
     await Promise.resolve();
 
     const raw = getPersistedRaw();
-    // Same reasoning as the previous test: asserting the shape of data this
-    // test just wrote itself, not untrusted external input.
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     const parsed = JSON.parse(raw) as unknown as { state: { soldSeats: string[] } };
     expect(parsed.state.soldSeats).toEqual(['SEAT-1']);
 
-    // Simulate a fresh load rehydrating from that same storage key.
     useVenueStore.setState({ soldSeats: new Set() });
     useVenueStore.setState({ soldSeats: new Set(parsed.state.soldSeats) });
 
@@ -360,8 +348,6 @@ describe('seatStore', () => {
     await Promise.resolve();
 
     const raw = getPersistedRaw();
-    // Same reasoning as the previous tests: asserting the shape of data this
-    // test just wrote itself, not untrusted external input.
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     const parsed = JSON.parse(raw) as unknown as {
       state: { bookings: { id: string; seatIds: string[]; total: number; createdAt: number }[] };
@@ -370,7 +356,6 @@ describe('seatStore', () => {
     expect(parsed.state.bookings[0]?.seatIds).toEqual(['SEAT-1']);
     expect(parsed.state.bookings[0]?.total).toBe(7000);
 
-    // Simulate a fresh load rehydrating from that same storage key.
     useVenueStore.setState({ bookings: [] });
     useVenueStore.setState({ bookings: parsed.state.bookings });
 

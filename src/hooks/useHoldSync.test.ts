@@ -91,8 +91,6 @@ describe('useHoldSync', () => {
 
     expect(useVenueStore.getState().holds.get('A1')?.owner).toBe('peer');
     expect(useVenueStore.getState().simulationSeeded).toBe(true);
-    // Adoption REPLACES, it doesn't merge - the venue's own seeded demo
-    // hold (H1) must not also appear alongside the incumbent's state.
     expect(useVenueStore.getState().holds.has('H1')).toBe(false);
   });
 

@@ -9,10 +9,6 @@ function generateId(): string {
 
 let cached: string | null = null;
 
-// Per-tab identity for the hold protocol. Deliberately sessionStorage (not
-// localStorage, not zustand's persist middleware): it survives a reload
-// but is never shared across tabs, so a reloading tab reclaims its OWN
-// prior holds instead of colliding with itself as a "new" peer.
 export function getSessionId(): string {
   if (cached) return cached;
 
@@ -27,9 +23,7 @@ export function getSessionId(): string {
     cached = fresh;
     return fresh;
   } catch {
-    // Safari private mode (and similar) can throw on sessionStorage access.
-    // Falling back to an in-memory id keeps the tab working as a
-    // single-session peer instead of crashing.
+    // sessionStorage can throw (e.g. Safari private mode); fall back in-memory.
     cached ??= generateId();
     return cached;
   }

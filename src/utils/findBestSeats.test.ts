@@ -153,8 +153,7 @@ describe('findBestSeats', () => {
     const seats = Array.from({ length: 18 }, (_, i) => makeSeat(i + 1));
     const venue = makeVenue([{ id: 'S-1', label: 'Section 1', rows: [makeRow(1, seats)] }]);
     const block = findBestSeats(venue, 4, 'view', isAvailable);
-    // Row centre is (1 + 18) / 2 = 9.5; the most centred 4-seat window is
-    // cols 8-11 (centre 9.5, offset 0) - not the leftmost window (1-4).
+    // Row centre is 9.5; cols 8-11 are centred, not the leftmost window.
     expect(block?.seatIds).toEqual(['S8', 'S9', 'S10', 'S11']);
   });
 
@@ -260,9 +259,7 @@ describe('compareBlocks', () => {
       { ...base, startCol: 5 },
     ];
 
-    // Math.sign(0) is +0 while -Math.sign(0) is -0 - both "zero" but distinct
-    // under Object.is, which `.toBe` uses. Summing the two signs sidesteps
-    // that (1 + -1 = 0, 0 + 0 = 0) without losing the antisymmetry check.
+    // Summing signs (not negating) avoids +0 vs -0 mismatching under `.toBe`.
     (['view', 'price'] as const).forEach((priority) => {
       for (const a of variants) {
         for (const b of variants) {

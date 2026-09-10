@@ -2,9 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const STORAGE_KEY = 'venue-session-id';
 
-// getSessionId() caches in a module-level variable, so each test needs a
-// fresh module instance (via resetModules + a dynamic import) to observe
-// its cold-start behavior rather than a previous test's cached id.
 describe('getSessionId', () => {
   beforeEach(() => {
     sessionStorage.clear();
@@ -59,7 +56,6 @@ describe('getSessionId', () => {
       const { getSessionId } = await import('./sessionId');
       const id = getSessionId();
       expect(typeof id).toBe('string');
-      // Still cached in-memory even though persistence failed.
       expect(getSessionId()).toBe(id);
     } finally {
       if (original) Object.defineProperty(window, 'sessionStorage', original);

@@ -1,10 +1,7 @@
 import type { BroadcastChannelLike } from '../utils/holdChannel';
 
-// A minimal, synchronous stand-in for BroadcastChannel: every channel on the
-// same bus receives every other channel's postMessage, but never its own -
-// exactly the semantics holdChannel.ts and useHoldSync.ts rely on. jsdom
-// doesn't implement BroadcastChannel at all, so real two-tab scenarios are
-// driven deterministically through this instead.
+// Synchronous BroadcastChannel stand-in (jsdom has no real one): every
+// channel receives every other channel's postMessage, never its own.
 export function createFakeBus() {
   const channels = new Set<{
     listeners: Set<(event: { data: unknown }) => void>;

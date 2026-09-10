@@ -26,8 +26,6 @@ describe('createHoldChannel', () => {
     const onB = vi.fn();
     createHoldChannel('a', vi.fn(), factory);
     const b = createHoldChannel('b', onB, factory);
-    // Simulate a fake bus that (unlike real BroadcastChannel) echoes back to
-    // the poster - the self-check must still hold.
     b.post(helloMessage('b'));
     expect(onB).not.toHaveBeenCalled();
   });
@@ -59,8 +57,6 @@ describe('createHoldChannel', () => {
     const a = createHoldChannel('a', vi.fn(), factory);
     createHoldChannel('b', onB, factory);
 
-    // Deliberately malformed - asserting it as a HoldMessage is exactly the
-    // shape isHoldMessage exists to reject at runtime.
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     a.post({ type: 'bogus' } as unknown as HoldMessage);
 

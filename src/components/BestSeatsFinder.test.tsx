@@ -13,9 +13,6 @@ function makeSeat(
   return { id: `S-${row}-${col}`, col, x: col, y: row, priceTier, status };
 }
 
-// Row 1 (tier 1, expensive/close) and row 2 (tier 3, cheap/far) each have a
-// clean 5-seat run, so "Best view" and "Best price" are guaranteed to
-// disagree - the concrete proof the priority toggle is wired to the solver.
 const venue: Venue = {
   venueId: 'v',
   name: 'Test Venue',
@@ -111,9 +108,6 @@ describe('BestSeatsFinder', () => {
   });
 
   it('excludes seats already sold in this browser', () => {
-    // Selling all of row 1 forces the (otherwise-preferred, closer) row out
-    // of contention entirely, so a successful find here can only mean the
-    // solver actually consulted soldSeats rather than just venue.json.
     useVenueStore.setState({
       soldSeats: new Set([1, 2, 3, 4, 5].map((c) => `S-1-${c}`)),
     });
