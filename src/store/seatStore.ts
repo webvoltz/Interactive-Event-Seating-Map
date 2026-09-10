@@ -11,9 +11,6 @@ export interface Feedback {
   message: string;
 }
 
-// A completed purchase, grouping the seats bought together in one checkout
-// so booking history can show/highlight them as one unit rather than as
-// loose entries in the flat soldSeats set.
 export interface Booking {
   id: string;
   seatIds: string[];
@@ -24,35 +21,19 @@ export interface Booking {
 interface VenueState {
   activeSectionId: string | null;
   selectedSeats: Set<string>;
-  // Seats bought via confirmPurchase(). There's no backend, so "sold" only
-  // means "sold in this browser" - it's a local, honest stand-in for a real
-  // server-side sale record, not a claim about the venue's actual inventory.
   soldSeats: Set<string>;
   bookings: Booking[];
-  // Which past booking's seats should currently be highlighted on the map,
-  // if any - set when a booking-history entry is clicked, distinct from the
-  // active seat *selection* (selectedSeats) which drives the checkout flow.
   viewingBookingId: string | null;
+  // null means "fit the whole section"; set by selectSeatBlock/viewBooking, cleared by setActiveSection.
+  mapFocusSeatIds: string[] | null;
   zoom: number;
   pan: { x: number; y: number };
   viewTransitionMs: number;
   feedback: Feedback | null;
 
-  // Live seat-hold contention (see docs/engineering-notes.md). `holds` only
-  // ever contains OTHER claims - a foreign tab's live cart, or a seeded demo
-  // hold - never this tab's own, which is `selectedSeats` +
-  // `selectionExpiresAt` instead. Deliberately not persisted: it's
-  // time-based (a stale hold from last session is meaningless) and shared
-  // cross-tab state, so localStorage-as-source-of-truth would fight the
-  // BroadcastChannel sync that actually owns it.
+  // Only ever OTHER tabs' claims - this tab's own is selectedSeats + selectionExpiresAt.
   holds: HoldMap;
-  // This tab's own checkout deadline. Persisted alongside selectedSeats so
-  // a reload doesn't grant an unbounded hold - see useHoldExpiry, which
-  // clears an already-lapsed one on boot.
   selectionExpiresAt: number | null;
-  // Whether the runtime demo simulation has seeded (or adopted, from an
-  // incumbent tab) its holds yet - guards against re-seeding after a late
-  // cross-tab `state` reply. Not persisted: every fresh load re-seeds.
   simulationSeeded: boolean;
 
   setActiveSection: (id: string | null) => void;
@@ -79,11 +60,7 @@ type PersistedVenueState = Pick<
   'selectedSeats' | 'soldSeats' | 'bookings' | 'selectionExpiresAt'
 >;
 
-// Optional, not just for the type checker's sake: this is deserializing
-// localStorage, which could hold data from an older app version (written
-// before `bookings`/`selectionExpiresAt` existed) or something a user
-// edited by hand in DevTools - genuinely nothing guarantees these fields
-// are present.
+// Fields are optional: localStorage may hold data from an older app version.
 interface SerializedVenueState {
   selectedSeats?: string[];
   soldSeats?: string[];
@@ -144,6 +121,7 @@ export const useVenueStore = create<VenueState>()(
       soldSeats: new Set(),
       bookings: [],
       viewingBookingId: null,
+      mapFocusSeatIds: null,
       zoom: 0.4,
       pan: { x: 0, y: 0 },
       viewTransitionMs: 200,
@@ -152,7 +130,7 @@ export const useVenueStore = create<VenueState>()(
       selectionExpiresAt: null,
       simulationSeeded: false,
 
-      setActiveSection: (id) => set({ activeSectionId: id }),
+      setActiveSection: (id) => set({ activeSectionId: id, mapFocusSeatIds: null }),
       setPan: (pan) => set({ pan }),
       setView: (zoom, pan, transitionMs) => set({ zoom, pan, viewTransitionMs: transitionMs }),
 
@@ -180,27 +158,16 @@ export const useVenueStore = create<VenueState>()(
           }
 
           return {
-            // Starting/editing a live selection supersedes browsing past
-            // booking history - drop any "viewing" highlight so the two
-            // sidebar modes never fight over what the map should show.
             selectedSeats: newSelected,
             viewingBookingId: null,
-            // The first seat starts a fresh 5-minute clock; adding more
-            // seats does NOT extend it (real ticketing sites don't) - the
-            // deadline is anchored to when the cart was opened, not to its
-            // last edit. Going back to zero clears it.
+            // Anchored to when the cart opened; adding seats doesn't extend it.
             selectionExpiresAt:
               newSelected.size === 0 ? null : (state.selectionExpiresAt ?? now + SELECTION_HOLD_MS),
           };
         }),
 
-      // A whole contiguous block (from the best-seats finder) arrives as one
-      // unit, so it's one atomic transition - toggleSeat() can't express
-      // this without tripping the MAX_SELECTABLE_SEATS check partway
-      // through and firing one feedback per seat. Setting activeSectionId
-      // in the same update (rather than a separate setActiveSection call)
-      // means there's no intermediate commit where the seats are selected
-      // but their section isn't the mounted one yet.
+      // One atomic transition, so there's no commit where the seats are
+      // selected but their section isn't mounted yet.
       selectSeatBlock: (seatIds, sectionId) =>
         set(() => {
           if (seatIds.length === 0 || seatIds.length > MAX_SELECTABLE_SEATS) {
@@ -215,20 +182,14 @@ export const useVenueStore = create<VenueState>()(
             selectedSeats: new Set(seatIds),
             activeSectionId: sectionId,
             viewingBookingId: null,
+            mapFocusSeatIds: seatIds,
             selectionExpiresAt: Date.now() + SELECTION_HOLD_MS,
           };
         }),
 
       clearSelection: () => set({ selectedSeats: new Set(), selectionExpiresAt: null }),
 
-      // The "checkout" transition: move whatever is currently selected into
-      // soldSeats (permanently unavailable in this browser), record it as
-      // one Booking (so history can show/highlight it as a unit), and empty
-      // the cart - as opposed to clearSelection(), which just abandons the
-      // cart without a sale. Re-validates the checkout deadline inside this
-      // same synchronous set() (JS is single-threaded, so this can't
-      // interleave with the expiry timer) rather than trusting the caller's
-      // belief that the hold was still live.
+      // Re-validates the deadline inside this same synchronous set() so it can't race the expiry timer.
       confirmPurchase: (total) => {
         let result: Booking | null = null;
         set((state) => {
@@ -265,17 +226,19 @@ export const useVenueStore = create<VenueState>()(
         return result;
       },
 
-      viewBooking: (id) => set({ viewingBookingId: id }),
-      clearViewingBooking: () => set({ viewingBookingId: null }),
+      viewBooking: (id) =>
+        set((state) => {
+          const booking = state.bookings.find((b) => b.id === id);
+          return { viewingBookingId: id, mapFocusSeatIds: booking ? booking.seatIds : null };
+        }),
+      clearViewingBooking: () => set({ viewingBookingId: null, mapFocusSeatIds: null }),
 
       clearFeedback: () => set({ feedback: null }),
       setFeedback: (feedback) => set({ feedback }),
 
       setHolds: (holds) => set({ holds }),
 
-      // Guarded so a late cross-tab `state` reply (after this tab already
-      // seeded its own simulation while waiting one out) can't clobber
-      // whichever seeding happened first.
+      // Guarded so a late cross-tab `state` reply can't clobber the seeding that already happened.
       seedSimulation: (holds) =>
         set((state) => (state.simulationSeeded ? {} : { holds, simulationSeeded: true })),
 
@@ -300,8 +263,6 @@ export const useVenueStore = create<VenueState>()(
           };
         }),
 
-      // A peer's claim won a tie-break on one or more of my own selected
-      // seats - drop just those, not the whole cart.
       releaseLostSeats: (seatIds) =>
         set((state) => {
           if (seatIds.length === 0) return {};
@@ -320,11 +281,7 @@ export const useVenueStore = create<VenueState>()(
           };
         }),
 
-      // Prunes lapsed holds and, separately, releases this tab's own
-      // selection if ITS deadline has passed - one set() call either way.
-      // Returns without touching `holds`'s reference (and skips the whole
-      // set() when nothing changed at all) so a tick that finds nothing
-      // expired costs no re-render of the ~1,500 mounted seats.
+      // Skips the set() entirely when nothing changed, so a no-op tick costs no re-render.
       runExpiry: (now) =>
         set((state) => {
           const prunedHolds = pruneHolds(state.holds, now);

@@ -10,8 +10,13 @@ const FOCUS_PADDING = 60;
 function Section({ section, bounds }: { section: Section; bounds: VenueContentBounds }) {
   const activeSectionId = useVenueStore((s) => s.activeSectionId);
   const setActiveSection = useVenueStore((s) => s.setActiveSection);
+  const mapFocusSeatIds = useVenueStore((s) => s.mapFocusSeatIds);
 
   const isActive = activeSectionId === section.id;
+
+  const focusSeatIds = useMemo(() => {
+    return mapFocusSeatIds ? new Set(mapFocusSeatIds) : null;
+  }, [mapFocusSeatIds]);
 
   const { labelPos, explodeOffset } = useMemo(() => {
     const emptyResult = { labelPos: { x: 0, y: 0 }, explodeOffset: { x: 0, y: 0 } };
@@ -52,17 +57,21 @@ function Section({ section, bounds }: { section: Section; bounds: VenueContentBo
   useEffect(() => {
     if (!isActive) return;
 
+    const focusSeats = focusSeatIds
+      ? section.rows.flatMap((row) => row.seats.filter((seat) => focusSeatIds.has(seat.id)))
+      : [];
+    const seatsForBounds =
+      focusSeats.length > 0 ? focusSeats : section.rows.flatMap((r) => r.seats);
+
     let minX = Infinity,
       minY = Infinity,
       maxX = -Infinity,
       maxY = -Infinity;
-    section.rows.forEach((row) => {
-      row.seats.forEach((seat) => {
-        minX = Math.min(minX, seat.x);
-        minY = Math.min(minY, seat.y);
-        maxX = Math.max(maxX, seat.x);
-        maxY = Math.max(maxY, seat.y);
-      });
+    seatsForBounds.forEach((seat) => {
+      minX = Math.min(minX, seat.x);
+      minY = Math.min(minY, seat.y);
+      maxX = Math.max(maxX, seat.x);
+      maxY = Math.max(maxY, seat.y);
     });
 
     const centerX = (minX + maxX) / 2;
@@ -90,7 +99,7 @@ function Section({ section, bounds }: { section: Section; bounds: VenueContentBo
       },
       SECTION_FOCUS_TRANSITION_MS,
     );
-  }, [isActive, section, bounds, explodeOffset]);
+  }, [isActive, section, bounds, explodeOffset, focusSeatIds]);
 
   const coverPath = useMemo(() => {
     const firstRow = section.rows[0];
