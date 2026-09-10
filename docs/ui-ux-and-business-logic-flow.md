@@ -57,60 +57,76 @@ trigonometry happens at render time, only at generation time.
 
 ## 3. State: `seatStore` ([`seatStore.ts`](../src/store/seatStore.ts))
 
-| Field              | Type                      | Persisted?             | Set by                                                                          |
-| ------------------ | ------------------------- | ---------------------- | ------------------------------------------------------------------------------- |
-| `zoom`             | `number`                  | ❌                     | fit-on-load effect, zoom buttons, section open/close, resume-selection effect   |
-| `activeSectionId`  | `string \| null`          | ❌                     | clicking/keying a section, clicking the empty map background, viewing a booking |
-| `selectedSeats`    | `Set<string>`             | ✅ (custom serializer) | `toggleSeat`, `clearSelection`, `confirmPurchase` (empties it)                  |
-| `soldSeats`        | `Set<string>`             | ✅ (custom serializer) | `confirmPurchase` (adds the seats just paid for)                                |
-| `bookings`         | `Booking[]`               | ✅ (plain JSON)        | `confirmPurchase` (prepends the new booking; newest first)                      |
-| `viewingBookingId` | `string \| null`          | ❌                     | `viewBooking`/`clearViewingBooking`, cleared by any `toggleSeat` call           |
-| `feedback`         | `{type, message} \| null` | ❌                     | `toggleSeat` (max-seat cap), cleared by `Toast` after 4s or dismiss             |
+| Field                | Type                      | Persisted?             | Set by                                                                                                                        |
+| -------------------- | ------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `zoom`               | `number`                  | ❌                     | fit-on-load effect, zoom buttons, section open/close, resume-selection effect                                                 |
+| `activeSectionId`    | `string \| null`          | ❌                     | clicking/keying a section, clicking the empty map background, viewing a booking, `selectSeatBlock`                            |
+| `selectedSeats`      | `Set<string>`             | ✅ (custom serializer) | `toggleSeat`, `selectSeatBlock`, `clearSelection`, `confirmPurchase` (empties it), a lost hold tie-break                      |
+| `selectionExpiresAt` | `number \| null`          | ✅ (plain number)      | `toggleSeat` (first seat starts it), `selectSeatBlock`, cleared by `clearSelection`/`confirmPurchase`/expiry                  |
+| `soldSeats`          | `Set<string>`             | ✅ (custom serializer) | `confirmPurchase` (adds the seats just paid for), a remote `sold` broadcast                                                   |
+| `bookings`           | `Booking[]`               | ✅ (plain JSON)        | `confirmPurchase` (prepends the new booking; newest first)                                                                    |
+| `viewingBookingId`   | `string \| null`          | ❌                     | `viewBooking`/`clearViewingBooking`, cleared by `toggleSeat`/`selectSeatBlock`                                                |
+| `feedback`           | `{type, message} \| null` | ❌                     | `toggleSeat`/`selectSeatBlock` (max-seat cap), the best-seats finder, hold contention, cleared by `Toast` after 4s or dismiss |
+| `holds`              | `Map<string, SeatHold>`   | ❌                     | `seedSimulation`, `setHolds`, `applyRemoteSold`, `runExpiry` (prunes lapsed entries)                                          |
+| `simulationSeeded`   | `boolean`                 | ❌                     | `seedSimulation` (guards against seeding twice - e.g. a late cross-tab reply)                                                 |
 
 **Persistence**: `partialize` scopes `localStorage` (`key: venue-storage`) to `selectedSeats`,
-`soldSeats`, **and** `bookings`. Since `Set` isn't JSON-native, a custom `PersistStorage` converts
-each `Set<string> ↔ string[]` on `getItem`/`setItem` (`bookings` is a plain array of plain objects,
-so it round-trips through `JSON.stringify`/`parse` with no custom conversion needed) - `zoom`,
-`activeSectionId`, `viewingBookingId`, and `feedback` are intentionally transient and reset on
-reload.
+`soldSeats`, `bookings`, **and** `selectionExpiresAt`. Since `Set` isn't JSON-native, a custom
+`PersistStorage` converts each `Set<string> ↔ string[]` on `getItem`/`setItem` (`bookings` is a
+plain array of plain objects, so it round-trips through `JSON.stringify`/`parse` with no custom
+conversion needed) - `zoom`, `activeSectionId`, `viewingBookingId`, `feedback`, `holds`, and
+`simulationSeeded` are intentionally transient and reset on reload. `holds` in particular is
+deliberately excluded even though it's meaningful state: it's time-based (a stale hold from last
+session means nothing) and shared cross-tab via `BroadcastChannel`, so treating `localStorage` as a
+second source of truth for it would fight that sync instead of complementing it. See
+[`docs/engineering-notes.md`](engineering-notes.md#localstorage-persistence-limits).
 
 **`toggleSeat(seatId)`** - the core selection rule:
 
 ```
-if already selected → remove it
+if the seat has a live foreign hold → set feedback (error toast), no-op
+else if already selected → remove it
 else if selectedSeats.size >= MAX_SELECTABLE_SEATS (8) → set feedback (error toast), no-op
-else → add it
+else → add it, and if this is the first seat, start selectionExpiresAt (now + 5 minutes)
 ```
 
 Also always clears `viewingBookingId` - starting or editing a live selection supersedes browsing
 past booking history, so the two sidebar modes (§8) never end up fighting over what the map should
-show. No server round-trip, no optimistic-lock/race handling - purely local `Set` mutation.
+show. Adding a second (or third, ...) seat does **not** push the deadline back - it's anchored to
+when the cart was opened, matching how a real ticketing site's hold works. No server round-trip for
+the sale itself, but see §15 for how holds now coordinate across tabs of the same browser.
 
-**`confirmPurchase(total)`** - the checkout transition (see §14 for the full picture):
+**`selectSeatBlock(seatIds, sectionId)`** - the best-seats finder's entry point (§16): replaces
+`selectedSeats` wholesale rather than merging, sets `activeSectionId` to the winning section in the
+same update (so there's no intermediate render where the seats are selected but not yet mounted),
+clears `viewingBookingId`, and starts a fresh `selectionExpiresAt`. Refuses (with the same cap
+feedback `toggleSeat` uses) if given zero seats or more than `MAX_SELECTABLE_SEATS`.
 
-```ts
-const newBooking: Booking = {
-  id: `BK-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-  seatIds: Array.from(state.selectedSeats),
-  total,
-  createdAt: Date.now(),
-};
-return {
-  soldSeats: new Set([...state.soldSeats, ...state.selectedSeats]),
-  selectedSeats: new Set(),
-  bookings: [newBooking, ...state.bookings],
-  viewingBookingId: newBooking.id,
-};
+**`confirmPurchase(total): Booking | null`** - the checkout transition (see §14 for the full
+picture). Re-checks `selectionExpiresAt` against `Date.now()` **inside its own synchronous `set()`
+call** before doing anything else:
+
+```
+if selectionExpiresAt is set and has already passed:
+  → clear the cart, set an error feedback, return null (no booking recorded)
+else:
+  → move selectedSeats into soldSeats, record one Booking, clear the cart and the
+    deadline, "view" the new booking, return the Booking
 ```
 
-Moves whatever's currently selected into `soldSeats` (persisted, so it survives a reload), records
-it as one `Booking` grouping those seats together (so history can show/highlight them as a unit
-rather than as loose entries in the flat `soldSeats` set), immediately "views" that new booking,
-and empties the cart - as opposed to `clearSelection()`, which just abandons the cart with no sale.
-`total` is passed in by the caller
+Because Zustand's `set()` runs synchronously and JS is single-threaded, this check can't race with
+the expiry timer (§15) - either the purchase's own `set()` call sees the deadline first, or the
+expiry's `runExpiry()` does; there's no interleaving where both think they went first. Moves
+whatever's currently selected into `soldSeats` (persisted, so it survives a reload) on success,
+records it as one `Booking` grouping those seats together (so history can show/highlight them as a
+unit rather than as loose entries in the flat `soldSeats` set), immediately "views" that new
+booking, and empties the cart - as opposed to `clearSelection()`, which just abandons the cart with
+no sale. `total` is passed in by the caller
 ([`BookingSummary.tsx`](../src/components/BookingSummary.tsx), via
 [`SeatSelectionFooter.tsx`](../src/components/SeatSelectionFooter.tsx)'s Proceed to Pay button)
 rather than computed here, since per-seat pricing lives in `venue` data the store doesn't hold.
+`BookingSummary.tsx`'s `handleConfirmPurchase` only shows the "Booking confirmed" banner when the
+return value is non-null, so a hold that expired mid-payment can't produce a false confirmation.
 
 **`viewBooking(id)` / `clearViewingBooking()`** - set/clear which past booking (if any) should
 currently render its seats with the highlight ring described in §7; driven entirely by
@@ -242,12 +258,26 @@ Only rendered for the one active section (~1,500 `<g role="checkbox">` nodes at 
 - Fill/stroke colors come from CSS custom properties defined once in
   [`index.css`](../src/index.css)'s `@theme` block (`--color-seat-*`, `--color-tier-*`) - a single
   source of truth shared with the legend swatches in `BookingSummary`, so they can't drift apart.
+  Looked up via [`seatStatus.ts`](../src/utils/seatStatus.ts)'s `SEAT_STATUS_STYLE` table, keyed by
+  effective status, rather than an if/else ladder recomputed per seat.
 - **Seat number** (`seat.col`) and a **row letter** (`A, B, … Z, AA, AB, …`, spreadsheet-style, so
   it never runs out) render as `<text>` - but _only_ once `zoom >= 2`. Below that threshold the
   ~1,500 extra label nodes simply aren't mounted at all, rather than rendering illegibly small text.
+  `Seats` subscribes to `zoom >= 2` as a **boolean**, not the raw `zoom` number - otherwise every
+  wheel/zoom event would re-render all ~1,500 mounted seats regardless of whether the threshold was
+  actually crossed.
 - `role="checkbox"`, `aria-checked`, `aria-disabled` (sold/reserved/held), `aria-label` describing
   row/seat/price/status, `tabIndex={0}` (or `-1` if unavailable) - real roving-focus keyboard
   navigation, not a custom widget bolted onto a `<div>`.
+
+**Effective status** is resolved by [`resolveSeatStatus()`](../src/utils/seatStatus.ts) from the
+seat's own `status`, `soldSeats`, the live `holds` map, `selectedSeats`, and whether the runtime
+hold simulation has seeded yet - one function, one precedence order, replacing what used to be
+several independent boolean checks. Precedence, highest first: **sold** (terminal) → **held** (a
+live, unexpired hold record - checked before "selected" as a fail-safe for the one frame after a
+reload where a persisted selection might have since been claimed elsewhere) → **selected** →
+**reserved** → **available** (or **held**, if `seat.status` says so and the simulation hasn't
+seeded yet - see §15).
 
 **Color states** (fill unless noted):
 
@@ -259,8 +289,11 @@ Only rendered for the one active section (~1,500 `<g role="checkbox">` nodes at 
 | Reserved  | amber         | none                                                      |
 | Held      | red           | none                                                      |
 
-**Click / Enter / Space** → `toggleSeat(seat.id)` (store) then `.focus()` the element - so keyboard
-users land exactly where they just acted.
+**Click / Enter / Space** on an available seat → `toggleSeat(seat.id)` (store) then `.focus()` the
+element - so keyboard users land exactly where they just acted. On an **unavailable** seat, clicking
+now sets an error feedback ("That seat is no longer available.") instead of silently doing nothing -
+necessary because with live holds, a seat can genuinely go from available to held between paint and
+click, and a silent no-op in that case reads as a bug.
 
 **Arrow-key navigation** (`handleKeyDown`):
 
@@ -269,9 +302,11 @@ users land exactly where they just acted.
   **closest `x` coordinate** (rows curve, so "same column" isn't a fixed index) - a linear scan
   over that row's seats.
 
-A seat counts as unavailable (`sold`/`reserved`/`held`) if either `seat.status` says so, **or** its
-ID is in the persisted `soldSeats` set (see §14) - either way it's `tabIndex={-1}` and ignored by
-both click and keyboard handlers (`isUnavailable` guard at the top of `handleInteraction`).
+A seat counts as unavailable (`sold`/`reserved`/`held`) if its resolved effective status isn't
+`available` or `selected` - either way it's `tabIndex={-1}` and ignored by both click and keyboard
+handlers (`isUnavailable` guard at the top of `handleInteraction`). A seat whose hold **lapses**
+while it has keyboard focus stays focused and simply becomes interactive again - React patches the
+same `<g key={seat.id}>` node's attributes in place rather than remounting it.
 
 **Booking-history highlight**: independent of the table above, a seat whose ID is in the currently
 `viewingBookingId` booking's `seatIds` (see §8) additionally gets a violet ring
@@ -291,7 +326,7 @@ middle region, and (only in selection mode) a **pinned, non-scrolling footer**:
 
 ```
 <header (venue name)>
-<scrollable region: legend + (SeatSelectionPanel | BookingHistoryPanel)>
+<scrollable region: BestSeatsFinder + legend + (SeatSelectionPanel | BookingHistoryPanel)>
 <SeatSelectionFooter - only rendered while showSelectionPanel>
 ```
 
@@ -327,8 +362,23 @@ code.
   an unrecognized tier number) - the same module both panels below use, so seat pricing/labels
   can't drift between them.
 
+### `BestSeatsFinder.tsx` (§16)
+
+Rendered first in the scrollable region, **unconditionally** - it's visible in both sidebar modes
+(unlike everything below it), since it's the sidebar's primary entry action rather than something
+that depends on there already being a selection. A party-size `<select>` (1..8), a "Best view" /
+"Best price" priority pair (real radio inputs, visually styled as a segmented pair, so grouping and
+arrow-key navigation come from the browser for free), and a submit button. Submitting runs
+[`findBestSeats()`](../src/utils/findBestSeats.ts) against live availability and, on success, calls
+`selectSeatBlock()` and reports what it found through the same `Toast` feedback channel everything
+else uses. If a selection already exists, submitting opens a `ConfirmDialog` first ("Replace your
+current selection?") rather than silently discarding it.
+
 ### `SeatSelectionPanel.tsx`
 
+- **[`CheckoutTimer.tsx`](../src/components/CheckoutTimer.tsx) (§15)** - rendered first, above the
+  seat list, whenever `selectionExpiresAt` is set. Shows `mm:ss` counting down plus a progress bar,
+  switching to amber under a minute. See §15 for how it ticks without ever touching the store.
 - **Selected Seats list** - derived via `useMemo` from `buildSeatIndex(venue)` (one
   seatId → `{section, row, seatCol, tierName, price}` lookup, built once per venue and shared with
   Booking History rather than re-walking `venue.sections` separately in each place); each entry
@@ -494,10 +544,13 @@ both paths calling `clearFeedback()`. Replaces what used to be a blocking `alert
 
 ## 11. Known stubs / intentional gaps
 
-- **No backend.** Seat availability beyond `sold` is static generated JSON; `sold` itself is now
-  real but browser-local (see §14) - there's still no cross-device/cross-user conflict detection.
-- **Payment is a UI stub.** See §8/§14 - the seats-become-sold part is real and persisted; there's
-  still no payment provider, server call, or order record behind it.
+- **No backend, and no cross-device sync.** `sold`/hold state is now real and _cross-tab_ within one
+  browser (see §14, §15) - but there's still no server, so two different visitors on two different
+  machines can't contend for the same seat here, and nothing stops a user from editing their own
+  `localStorage`.
+- **Payment is a UI stub.** See §8/§14 - the seats-become-sold part is real and persisted, and
+  `confirmPurchase()` re-validates the checkout deadline before completing (§15); there's still no
+  payment provider, server call, or order record behind it.
 - **No virtualization within an open section.** ~1,500 seat nodes mount at once; fine at this
   scale, documented as the next bottleneck in `engineering-notes.md` if a section ever needs far
   more seats.
@@ -508,20 +561,33 @@ both paths calling `clearFeedback()`. Replaces what used to be a blocking `alert
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `App.tsx`                                | Boot states, fit-zoom, zoom/reset-view buttons, drag-pan, mobile/tablet drawer shell (`lg:` breakpoint)                                                     |
 | `hooks/useVenue.ts`                      | Fetch `/venue.json`, expose `refetch`                                                                                                                       |
-| `store/seatStore.ts`                     | zoom/activeSection/selectedSeats/soldSeats/bookings/viewingBookingId/feedback, persistence                                                                  |
+| `store/seatStore.ts`                     | zoom/activeSection/selectedSeats/selectionExpiresAt/soldSeats/bookings/viewingBookingId/feedback/holds/simulationSeeded, persistence                        |
 | `components/VenueMap.tsx`                | SVG root cropped to content bounds, stage graphic, background-click-to-deselect                                                                             |
 | `components/Section.tsx`                 | Collapsed/active section rendering, open/close, scroll-to-center                                                                                            |
 | `components/Seat.tsx`                    | Seat rendering, colors, labels, click + keyboard interaction, booking-highlight ring                                                                        |
 | `components/BookingSummary.tsx`          | Sidebar shell (header/legend/scrollable region/pinned footer) + switch between selection and history panels                                                 |
-| `components/SeatSelectionPanel.tsx`      | Selected seats list, clear-confirm dialog (no total/pay - see `SeatSelectionFooter.tsx`)                                                                    |
+| `components/BestSeatsFinder.tsx`         | Party-size/priority form; runs the solver, selects/focuses the winning block (§16)                                                                          |
+| `components/SeatSelectionPanel.tsx`      | Checkout timer + selected seats list, clear-confirm dialog (no total/pay - see `SeatSelectionFooter.tsx`)                                                   |
 | `components/SeatSelectionFooter.tsx`     | Total Amount + Proceed to Pay, rendered outside the scrollable region so it's never scrolled out of view                                                    |
+| `components/CheckoutTimer.tsx`           | The checkout countdown UI - `mm:ss` + progress bar, milestone-band `aria-live` announcements (§15)                                                          |
+| `components/HoldRuntime.tsx`             | Renders nothing - hosts the imperative hold-expiry timer and cross-tab sync hooks outside the render tree (§15)                                             |
 | `components/BookingHistoryPanel.tsx`     | Past bookings list (capped + scrollable), click-to-view/highlight                                                                                           |
 | `components/ConfirmDialog.tsx`           | Reusable confirm/cancel modal, portaled to `document.body`, sets `inert` on the app root while open                                                         |
 | `components/Toast.tsx`                   | `aria-live` feedback banner                                                                                                                                 |
 | `components/Icon.tsx` / `IconButton.tsx` | Shared icon glyphs / icon-button visual recipe (always `p-3`, a 44px+ touch target at every breakpoint)                                                     |
+| `hooks/useCountdown.ts`                  | Self-correcting per-second countdown, isolated from the store (§15)                                                                                         |
+| `hooks/useHoldExpiry.ts`                 | Arms one timer for the next hold/selection deadline; prunes via the store's `runExpiry` (§15)                                                               |
+| `hooks/useHoldSync.ts`                   | Cross-tab `BroadcastChannel` wiring: handshake, diff-driven outbound broadcasts, inbound message dispatch (§15)                                             |
 | `utils/venueBounds.ts`                   | `getVenueContentBounds()` - the venue's real seat extent, shared by `App.tsx` (fit-zoom) and `VenueMap.tsx`/`Section.tsx` (SVG cropping + scroll-to-center) |
 | `utils/rowLetter.ts`                     | Row-lettering (A, B, … Z, AA, …), shared by the map and the sidebar                                                                                         |
 | `utils/seatIndex.ts`                     | `TIERS`/`getTier`, `buildSeatIndex(venue)` - one seatId → section/row/tier/price lookup shared by both sidebar panels                                       |
+| `utils/findBestSeats.ts`                 | The best-seats solver: sliding-window search + deterministic ranking (§16)                                                                                  |
+| `utils/seatStatus.ts`                    | `resolveSeatStatus()` - the single source of truth for a seat's effective status (§14, §15)                                                                 |
+| `utils/holdProtocol.ts`                  | Hold-related constants, message validation, and pure reducers (prune/tie-break/adopt) shared by the store and the sync hook (§15)                           |
+| `utils/holdChannel.ts`                   | Feature-detected `BroadcastChannel` wrapper with an injectable transport, for testability and graceful degradation (§15)                                    |
+| `utils/holdSimulation.ts`                | Seeds the sample `held` seats with real, staggered, deterministic expiries at runtime (§15)                                                                 |
+| `utils/sessionId.ts`                     | Per-tab identity for the hold protocol, cached in `sessionStorage`                                                                                          |
+| `utils/formatCountdown.ts`               | `mm:ss` formatting and the stable milestone bands `CheckoutTimer`'s `aria-live` region announces (§15)                                                      |
 
 ---
 
@@ -602,68 +668,71 @@ reproduces the same demo data rather than a different scatter each run): **70% `
 `sold`, 10% `reserved`, 5% `held`**. Confirmed by actually counting all 15,000 seats:
 `{ available: 10511, sold: 2227, reserved: 1480, held: 782 }` - 70.1% / 14.8% / 9.9% / 5.2%.
 
-**`sold` can also come from a second source**, computed at render time in
-[`Seat.tsx`](../src/components/Seat.tsx):
+**`sold` can also come from a second source**, folded into
+[`resolveSeatStatus()`](../src/utils/seatStatus.ts) (see §15):
 
 ```ts
-const isSold = seat.status === 'sold' || soldSeats.has(seat.id);
+if (seat.status === 'sold' || soldSeats.has(seat.id)) return 'sold';
 ```
 
 `soldSeats` is a `Set<string>` in `seatStore` ([`seatStore.ts`](../src/store/seatStore.ts)),
-populated by `confirmPurchase()` (see below) and **persisted to `localStorage`** alongside
-`selectedSeats`. So a seat reads as sold either because the sample data seeded it that way, or
-because _this browser_ bought it (happens the moment you pay) - and that second reason survives a
-reload, independent of what `venue.json` itself says.
+populated by `confirmPurchase()` (see below) - and by a remote `sold` broadcast from another tab of
+the same browser, see §15 - and **persisted to `localStorage`** alongside `selectedSeats`. So a
+seat reads as sold either because the sample data seeded it that way, or because _this browser_ (in
+any of its tabs) bought it - and that reason survives a reload, independent of what `venue.json`
+itself says.
 
-| Status                                | Set by                                                       | Rendering                                    | Clickable?                             |
-| ------------------------------------- | ------------------------------------------------------------ | -------------------------------------------- | -------------------------------------- |
-| `available`                           | `generateVenue.ts` seeding (~70% of seats)                   | White fill, tier-colored border              | ✅                                     |
-| `sold`                                | `generateVenue.ts` seeding (~15%) **or** `confirmPurchase()` | Light gray fill, no border                   | ❌ `aria-disabled`, `tabIndex=-1`      |
-| `reserved`                            | `generateVenue.ts` seeding (~10%)                            | Amber fill, no border                        | ❌                                     |
-| `held`                                | `generateVenue.ts` seeding (~5%)                             | Red fill, no border, white seat-number text  | ❌                                     |
-| **Selected** _(not a `status` value)_ | Client-only, `seatStore.selectedSeats`                       | Green fill + white ring (blue while focused) | ✅ (click/`Enter`/`Space` toggles off) |
+`held` now has the same two-source split `sold` always had. `generateVenue.ts`'s static `held`
+seeding is a **seeding instruction**, consumed once at runtime by
+[`holdSimulation.ts`](../src/utils/holdSimulation.ts) (§15) to create a real, expiring hold record;
+from that point on the live `holds` map is the only authority, and a lapsed simulated hold correctly
+reverts to `available` rather than reading `held` forever.
+
+| Status                                | Set by                                                                                                                                                   | Rendering                                    | Clickable?                             |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | -------------------------------------- |
+| `available`                           | `generateVenue.ts` seeding (~70% of seats)                                                                                                               | White fill, tier-colored border              | ✅                                     |
+| `sold`                                | `generateVenue.ts` seeding (~15%) **or** `confirmPurchase()`/a remote `sold`                                                                             | Light gray fill, no border                   | ❌ `aria-disabled`, `tabIndex=-1`      |
+| `reserved`                            | `generateVenue.ts` seeding (~10%) - unlike `held`, never expires                                                                                         | Amber fill, no border                        | ❌                                     |
+| `held`                                | A **live** entry in `holds` (own tab's cart excluded - see §15), or the static `generateVenue.ts` seeding (~5%) before the runtime simulation has seeded | Red fill, no border, white seat-number text  | ❌                                     |
+| **Selected** _(not a `status` value)_ | Client-only, `seatStore.selectedSeats`                                                                                                                   | Green fill + white ring (blue while focused) | ✅ (click/`Enter`/`Space` toggles off) |
 
 **"Selected" isn't a seat status at all.** It's a separate, purely client-side concept - a
 `Set<string>` of seat IDs - rendered on top of whichever seats currently read as `available`.
-`Seat.tsx`'s guard, `isUnavailable = isSold || isReserved || isHeld`, means a seat that's sold
-(data-driven or `soldSeats`-driven), reserved, or held can never be selected in the first place
+[`resolveSeatStatus()`](../src/utils/seatStatus.ts)'s precedence (sold → held → selected → reserved
+→ available) means a seat that's sold, held, or reserved can never be selected in the first place
 (`handleInteraction` no-ops for it before `toggleSeat` is ever called) - so "selected" and
-"unavailable" are mutually exclusive **by construction**.
+"unavailable" are mutually exclusive **by construction**. The one subtlety: **held is checked
+before selected**, not after - a deliberate fail-safe for the single frame after a reload where a
+persisted selection might have since been claimed by another tab (§15), not something that should
+happen in normal use.
 
 ### What actually happens after "Proceed to Pay"
 
 Clicking **Proceed to Pay**
 ([`SeatSelectionFooter.tsx`](../src/components/SeatSelectionFooter.tsx)) calls
-`confirmPurchase(total)`:
+`confirmPurchase(total)`, which (see §3 for the full re-validation logic) either returns a `Booking`
+or `null`:
 
-```ts
-confirmPurchase: (total) =>
-  set((state) => {
-    const newBooking: Booking = {
-      id: `BK-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      seatIds: Array.from(state.selectedSeats),
-      total,
-      createdAt: Date.now(),
-    };
-    return {
-      soldSeats: new Set([...state.soldSeats, ...state.selectedSeats]),
-      selectedSeats: new Set(),
-      bookings: [newBooking, ...state.bookings],
-      viewingBookingId: newBooking.id,
-    };
-  });
+```
+if selectionExpiresAt has already passed:
+  clear the cart, set an error feedback, return null
+else:
+  move selectedSeats → soldSeats, record a Booking, clear the cart + deadline,
+  "view" the new booking, broadcast the sale to other tabs (§15), return the Booking
 ```
 
-The seats just bought move from `selectedSeats` into `soldSeats`, a `Booking` record groups them
-together in `bookings` (newest first), that new booking is immediately "viewed" (so it shows up
-highlighted the moment the sidebar falls back to Booking History - see §8), and the cart empties.
-`soldSeats` and `bookings` are both persisted (`soldSeats` via the same custom `Set ↔ string[]`
-serialization `selectedSeats` always used; `bookings` as a plain JSON array, no custom
-serialization needed). **On the next load, those seats render `sold` - gray, unclickable,
+On success, the seats just bought move from `selectedSeats` into `soldSeats`, a `Booking` record
+groups them together in `bookings` (newest first), that new booking is immediately "viewed" (so it
+shows up highlighted the moment the sidebar falls back to Booking History - see §8), and the cart
+empties. `soldSeats` and `bookings` are both persisted (`soldSeats` via the same custom
+`Set ↔ string[]` serialization `selectedSeats` always used; `bookings` as a plain JSON array, no
+custom serialization needed). **On the next load, those seats render `sold` - gray, unclickable,
 `aria-disabled` - instead of quietly becoming `available` again, and the booking is still there in
 history.** Confirmed end-to-end in a real browser: buy a seat, reload the page, the seat is still
 gray and a click on it does nothing; `Selected Seats` stays `(0/8)`; Booking History still lists
-the purchase.
+the purchase. `BookingSummary.tsx`'s `handleConfirmPurchase` only shows the "Booking confirmed"
+banner when `confirmPurchase` actually returned a booking, so a hold that expired mid-payment shows
+an error instead of a false confirmation.
 
 ### The honest scope of this fix - browser-local, not a real inventory system
 
@@ -679,39 +748,138 @@ relied on for `selectedSeats`. It does **not** solve:
   or a different browser) wipes `soldSeats` back to empty - every seat looks fresh and available
   again, with no record a purchase ever happened. For a stub with no backend, this is the correct,
   expected tradeoff, not a bug: there is nowhere else for that fact to live.
-- **`reserved`/`held` are still static sample data, not a real hold.** They're seeded once at
-  generation time, not created by any live user action, and nothing ever expires or releases them.
-  A real implementation would need a server-owned, TTL-based hold instead (see below), which a
-  browser client can't safely implement for itself (nothing stops a user from just editing their
-  own `localStorage`, unlike `sold`, there's no equivalent client action that legitimately produces
-  these two).
-- **Real-time sync between visitors.** Without a backend push (websocket/poll), two people can each
-  see the same seat as `available` at the same time and both attempt to buy it - this fix only
-  prevents _you_ from re-buying _your own_ purchase, not a genuine race between two different
-  users.
+- ~~`reserved`/`held` are still static sample data, not a real hold. They're seeded once at
+  generation time, not created by any live user action, and nothing ever expires or releases
+  them.~~ **Partly resolved for `held`** - see §15: it's now a real, expiring, TTL-based hold,
+  seeded at runtime and shared across tabs of the same browser via `BroadcastChannel`. `reserved`
+  is unchanged and intentionally so: it models a longer-lived box-office/accessibility/comp hold,
+  which real ticketing systems don't auto-expire the way a checkout hold does.
+- **Real-time sync between visitors is still browser-local.** §15's `BroadcastChannel` sync only
+  reaches other tabs of the _same browser on the same machine_ - there is still no server push, so
+  two different visitors on two different computers can't see each other's live holds or sales
+  here. This fix (plus §15) prevents _you_ from re-buying _your own_ purchase and lets your own
+  tabs coordinate; it is not a genuine cross-user race resolved by a server.
 
 ### What a real implementation would still add on top of this
 
 - **`sold`** - set **server-side** on payment success, as the durable source of truth;
   `localStorage` would become an optimistic local cache of that server state, not the record
   itself (see [`engineering-notes.md`](engineering-notes.md#localstorage-persistence-limits)).
-- **`held`** - a short-lived, server-owned lock ("this seat is in someone else's cart for the next
-  10 minutes") with a TTL, reverting to `available` automatically if checkout is abandoned.
+- **`held`** - the mechanism (a short-lived, TTL-based lock) is now real, just not
+  server-authoritative - §15's `BroadcastChannel` protocol is a same-browser simulation of what a
+  real implementation would enforce from a server, where a client can't just lie about having
+  released a seat.
 - **`reserved`** - typically a longer-lived hold (box-office/accessibility/comp holds), same
   server-ownership requirement.
-- **Real-time sync** - a push mechanism so a seat someone else just bought disappears from your
-  view without a manual reload.
+- **Real-time sync across different visitors** - a genuine push mechanism (websocket/poll) from a
+  server, so a seat a _different person_ just bought disappears from your view without a manual
+  reload - what §15 does is the same idea, scoped down to tabs of one browser.
 
 ### How to see all four states yourself
 
 Open any section - with the seeded ~30% non-`available` mix, `sold` (gray), `reserved` (amber), and
 `held` (red) seats are all visible immediately, scattered in with the tier-colored `available`
 ones, no manual setup required. To confirm a specific one, a seat's `aria-label` (visible via
-browser dev tools, or a screen reader) states its status directly, e.g. `"Row A Seat 12, Price $1,
-reserved"`. Regenerating the data (`pnpm run generate:venue`) reproduces the same ~70/15/10/5 mix
-every time (fixed PRNG seed), so this isn't a one-off fluke of a particular generation run.
+browser dev tools, or a screen reader) states its status directly, e.g. `"Row A Seat 12, Price
+$7000, reserved"` - the price shown is the tier's actual dollar amount
+(`getTier(seat.priceTier).price`), not the raw tier number; the label used to read `"Price $1"` for
+a tier-1 ($7,000) seat, a bug fixed alongside the `resolveSeatStatus()` rewrite (§15). Regenerating
+the data (`pnpm run generate:venue`) reproduces the same ~70/15/10/5 mix every time (fixed PRNG
+seed), so this isn't a one-off fluke of a particular generation run. Watch a `held` seat for a
+minute or two and it will flip to `available` on its own - see §15 for the mechanism.
 
 The rendering path for `sold`/`reserved`/`held` in `Seat.tsx` and the legend in `BookingSummary.tsx`
 required no changes to support this - `pickStatus()` in `generateVenue.ts` only needed to _decide_
 to assign these statuses; the rendering was already complete and correct for all four states before
 this change.
+
+---
+
+## 15. Live seat-hold contention
+
+Selecting a seat now starts a real, expiring hold, and the sample `held` seats stop being
+permanent - both coordinate across every tab of the same browser via `BroadcastChannel`. No
+backend; see the honest limits called out throughout this section and in §11/§14.
+
+**The checkout timer.** The first seat added to `selectedSeats` sets `selectionExpiresAt = now + 5
+minutes` (`SELECTION_HOLD_MS` in [`holdProtocol.ts`](../src/utils/holdProtocol.ts)); adding more
+seats doesn't push it back. [`CheckoutTimer.tsx`](../src/components/CheckoutTimer.tsx), driven by
+[`useCountdown.ts`](../src/hooks/useCountdown.ts), renders it as `mm:ss` plus a progress bar,
+turning amber under a minute. The countdown **never writes to the store** - it keeps its own
+`setState` loop, self-corrected to the next whole-second boundary via `setTimeout` rather than
+`setInterval`, so the only thing that re-renders on a tick is the timer widget itself, never the
+seat layer. Accessibility: the ticking digits are `aria-hidden`, and a separate `aria-live="polite"`
+sibling announces only when [`pickCountdownMilestone()`](../src/utils/formatCountdown.ts) crosses
+into a new band (2 minutes, 1 minute, 30s, 10s, expired) - stable for most of a session, so a screen
+reader isn't spammed once a second.
+
+**Expiry, without polling.** [`useHoldExpiry.ts`](../src/hooks/useHoldExpiry.ts) arms exactly one
+`setTimeout` for whichever comes soonest - a tracked hold lapsing, or this tab's own
+`selectionExpiresAt` - via `nextDeadline()` in `holdProtocol.ts`. On fire, it calls the store's
+`runExpiry(now)`, which prunes lapsed holds (`pruneHolds()` returns the **same** `Map` reference,
+and the store skips `set()` entirely, when nothing has actually lapsed - a load-bearing detail, not
+a micro-optimization: it's what keeps a routine tick from re-rendering the ~1,500 mounted seats) and
+releases the local selection with a toast if its own deadline passed. It also re-runs on
+`visibilitychange` becoming visible, so a backgrounded tab that comes back with hundreds of holds
+already lapsed (browsers throttle background timers) catches up in one batched prune, not one per
+seat.
+
+**The sample `held` seats get real expiries.** [`holdSimulation.ts`](../src/utils/holdSimulation.ts)
+seeds every seat `venue.json` marks `held` with a deterministic, staggered expiry within a 6-minute
+window at runtime (never baked into the committed JSON, which would just be stale on the next
+load) - a hash of the seat id decides its offset, so the same seat always lands in the same release
+batch regardless of load order. `seatStore.simulationSeeded` gates this: before it's run, a
+JSON-`held` seat still reads as `held` (no flash of hundreds of seats going available on first
+paint); after, the live `holds` map is the only authority.
+
+**Cross-tab sync.** [`useHoldSync.ts`](../src/hooks/useHoldSync.ts), mounted once via
+[`HoldRuntime.tsx`](../src/components/HoldRuntime.tsx) (renders nothing - it exists purely to host
+this and `useHoldExpiry` outside the render tree), joins a `BroadcastChannel` wrapped by
+[`holdChannel.ts`](../src/utils/holdChannel.ts). That wrapper is feature-detected and
+injectable - it degrades to a no-op transport when `BroadcastChannel` is unavailable (which is also
+exactly the situation under Vitest/jsdom, so tests exercise the real degraded path, not a mock of
+it). A new tab posts `hello`; an incumbent replies `state` with everything it knows, and the
+newcomer **adopts that snapshot instead of seeding its own simulation** - only a tab that hears
+nothing back within `SYNC_TIMEOUT_MS` seeds fresh. Ongoing changes broadcast as `hold` messages
+carrying an owner's **entire** current claim (not deltas), so a dropped packet self-heals on the
+next change rather than leaving a stale hold forever; a completed purchase also broadcasts `sold`.
+If two tabs select the same seat in the same instant, [`ingestPeerHold()`](../src/utils/holdProtocol.ts)
+resolves it with a deterministic tie-break (the lower session id wins) that both tabs compute
+identically with no coordinator - the losing tab drops the seat and sees an error toast.
+
+**What clicking an unavailable seat does now.** Because a seat can genuinely go from available to
+held between paint and click, `Seat.tsx`'s click handler sets an error feedback ("That seat is no
+longer available.") on an unavailable seat instead of silently no-op'ing - the old silent-ignore
+behavior would look like a bug in exactly that race.
+
+---
+
+## 16. Best-seats finder
+
+[`BestSeatsFinder.tsx`](../src/components/BestSeatsFinder.tsx), rendered above the Price
+Tiers/Seat Status legend in the sidebar's scrollable region (visible in both selection and history
+modes), lets a user ask for a party size and a priority instead of hand-picking seats one at a time.
+
+**The solver.** [`findBestSeats.ts`](../src/utils/findBestSeats.ts) does one pass over the venue
+(O(seats × party size), single-digit milliseconds even at 15,000 seats) sliding a
+window of exactly `partySize` contiguous, currently-selectable seats per row, and scores every
+window it finds - not just the first one per row, since the most centered window in a long run
+usually isn't the leftmost. Ranking is a strict, deterministic total order via
+[`compareBlocks()`](../src/utils/findBestSeats.ts): **"Best view"** sorts by row distance from the
+stage, then how centered the block is (measured in the row's own `col` range, not x/y - arc
+position, not geometry, is the thing "centered" actually means here), then price; **"Best price"**
+sorts the same three keys but leads with price. Two final tiebreak keys (section, starting seat)
+guarantee the same query always returns the same seats, rather than depending on `venue.json`'s
+array order.
+
+**Wiring it to live availability.** The finder builds its `isSelectable` predicate from
+`venue.json`'s own status plus this session's `soldSeats` - the same two-part rule `Seat.tsx`
+already applies visually - and calls `findBestSeats()` fresh on every submit, so a seat bought since
+the last search can't be offered again.
+
+**Applying the result.** On success, `selectSeatBlock(seatIds, sectionId)` (§3) selects the block
+and focuses its section in one atomic store update, and the outcome ("Found 4 seats - Section 3 ·
+Row A · Seats 22-25 · $28000") goes through the same `Toast` feedback channel as everything else -
+no separate announcement mechanism. On failure (no block of that size is available), the search is
+completely inert: no selection change, no section change, just an error toast - so a failed search
+can never look like it silently cleared the user's existing cart.

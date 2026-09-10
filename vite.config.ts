@@ -18,12 +18,17 @@ export default defineConfig({
       // statements 90) — most components have no tests at all yet. Set here
       // as a floor so coverage can't silently regress below where it is
       // today, while the real work of reaching full compliance is tracked
-      // separately (see engineering-notes.md).
+      // separately (see engineering-notes.md). Ratcheted up (never down) as
+      // real coverage improves — last raised alongside the best-seats
+      // solver and live seat-hold contention work, whose pure utility
+      // modules landed at ~95%+ coverage each. Floored a point below the
+      // actual measured numbers (branches 56.2 / functions 49.4 / lines
+      // 55.1 / statements 54.1) for safety margin.
       thresholds: {
-        branches: 27,
-        functions: 19,
-        lines: 25,
-        statements: 24,
+        branches: 55,
+        functions: 48,
+        lines: 54,
+        statements: 53,
       },
     },
   },
