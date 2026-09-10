@@ -11,9 +11,6 @@ interface BookingSummaryProps {
   venue: Venue;
 }
 
-// How long the "Booking confirmed" banner stays up before the sidebar
-// automatically returns to Booking History - long enough to read, short
-// enough that the flow still feels automatic rather than stuck.
 const CONFIRMATION_DISPLAY_MS = 3000;
 
 export default function BookingSummary({ venue }: BookingSummaryProps) {
@@ -32,24 +29,12 @@ export default function BookingSummary({ venue }: BookingSummaryProps) {
   }, [confirmedTotal]);
 
   const handleConfirmPurchase = (total: number) => {
-    // confirmPurchase re-validates the checkout deadline itself and
-    // returns null if it had already lapsed - only show the "confirmed"
-    // banner for a sale that actually happened. On success it marks these
-    // seats sold (persisted - see seatStore.ts) so they stay unavailable
-    // across a reload instead of quietly becoming selectable again, and
-    // records it in booking history.
     const booking = confirmPurchase(total);
     if (booking) setConfirmedTotal(total);
   };
 
-  // Live seat selection takes over the sidebar the moment it starts, and
-  // keeps it until the post-payment confirmation banner has had its moment
-  // - only then does the view fall back to Booking History automatically.
   const showSelectionPanel = selectedSeats.size > 0 || confirmedTotal !== null;
 
-  // Computed here (not inside SeatSelectionPanel) because the footer that
-  // needs it is rendered as this component's own sibling, outside the
-  // scrollable region SeatSelectionPanel lives in - see the layout below.
   const seatIndex = useMemo(() => buildSeatIndex(venue), [venue]);
   const total = useMemo(() => {
     let sum = 0;
@@ -72,7 +57,7 @@ export default function BookingSummary({ venue }: BookingSummaryProps) {
           <h2 className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-3">
             Price Tiers
           </h2>
-          <div className="space-y-2 mb-4">
+          <div className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-4 h-3 rounded-sm border-2 border-tier-1 bg-white"></div>
@@ -93,28 +78,6 @@ export default function BookingSummary({ venue }: BookingSummaryProps) {
                 <span className="text-xs text-gray-700">{getTier(3).name}</span>
               </div>
               <span className="text-xs font-bold text-gray-900">${getTier(3).price}</span>
-            </div>
-          </div>
-
-          <h2 className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-3 mt-4 pt-3 border-t border-gray-200">
-            Seat Status
-          </h2>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm bg-seat-selected"></div>
-              <span className="text-xs text-gray-700">Selected</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm bg-seat-sold"></div>
-              <span className="text-xs text-gray-700">Sold</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm bg-seat-reserved"></div>
-              <span className="text-xs text-gray-700">Reserved</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm bg-seat-held"></div>
-              <span className="text-xs text-gray-700">Held</span>
             </div>
           </div>
         </div>
