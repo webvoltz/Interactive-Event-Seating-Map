@@ -3,6 +3,7 @@ import { useVenueStore } from '../store/seatStore';
 import type { Venue } from '../interfaces/venue.interfaces';
 import { buildSeatIndex } from '../utils/seatIndex';
 import ConfirmDialog from './ConfirmDialog';
+import CheckoutTimer from './CheckoutTimer';
 
 interface SeatSelectionPanelProps {
   venue: Venue;
@@ -40,6 +41,7 @@ export default function SeatSelectionPanel({ venue }: SeatSelectionPanelProps) {
 
   return (
     <div>
+      <CheckoutTimer />
       <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 flex justify-between items-center">
         <span>Selected Seats ({selectedSeats.size}/8)</span>
         {selectedSeats.size > 0 && (

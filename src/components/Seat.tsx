@@ -2,6 +2,13 @@ import { memo, useMemo } from 'react';
 import type { ISeat, Row } from '../interfaces/venue.interfaces';
 import { useVenueStore } from '../store/seatStore';
 import { rowLetter } from '../utils/rowLetter';
+import { getTier } from '../utils/seatIndex';
+import {
+  SEAT_STATUS_STYLE,
+  describeSeatStatus,
+  isSeatSelectable,
+  resolveSeatStatus,
+} from '../utils/seatStatus';
 
 interface SeatsProps {
   rows: Row[];
@@ -27,11 +34,22 @@ const LABEL_ZOOM_THRESHOLD = 2;
 const Seats = memo(function Seats({ rows }: SeatsProps) {
   const selectedSeats = useVenueStore((s) => s.selectedSeats);
   const soldSeats = useVenueStore((s) => s.soldSeats);
+  const holds = useVenueStore((s) => s.holds);
+  const simulationSeeded = useVenueStore((s) => s.simulationSeeded);
   const bookings = useVenueStore((s) => s.bookings);
   const viewingBookingId = useVenueStore((s) => s.viewingBookingId);
   const toggleSeat = useVenueStore((s) => s.toggleSeat);
-  const zoom = useVenueStore((s) => s.zoom);
-  const showLabels = zoom >= LABEL_ZOOM_THRESHOLD;
+  const setFeedback = useVenueStore((s) => s.setFeedback);
+  // A boolean selector, not the raw zoom value - all ~1,500 seats in the
+  // active section would otherwise re-render on every wheel/zoom event
+  // (Zustand's default equality is Object.is, so a boolean that doesn't
+  // change produces no re-render; the raw zoom number changes constantly).
+  const showLabels = useVenueStore((s) => s.zoom >= LABEL_ZOOM_THRESHOLD);
+
+  // Computed once per render of this component, not once per seat - a
+  // countdown-precision read isn't needed here, just "is this hold still
+  // live right now".
+  const now = Date.now();
 
   // Seats belonging to whichever past booking is currently being viewed
   // from Booking History, if any - highlighted on top of their normal
@@ -51,6 +69,11 @@ const Seats = memo(function Seats({ rows }: SeatsProps) {
     if (!isUnavailable) {
       toggleSeat(seat.id);
       e.currentTarget.focus();
+    } else {
+      // A seat can go from available to held between paint and click now
+      // (another tab, or the simulation) - a silent no-op would look broken
+      // in exactly that case, so say why nothing happened.
+      setFeedback({ type: 'error', message: 'That seat is no longer available.' });
     }
   };
 
@@ -111,38 +134,24 @@ const Seats = memo(function Seats({ rows }: SeatsProps) {
     <>
       {rows.map((row, rowIndex) =>
         row.seats.map((seat, seatIndex) => {
-          const isSelected = selectedSeats.has(seat.id);
-          // Sold if the sample data says so, or if it was bought in this
-          // browser via confirmPurchase() - see seatStore.ts.
-          const isSold = seat.status === 'sold' || soldSeats.has(seat.id);
-          const isReserved = seat.status === 'reserved';
-          const isHeld = seat.status === 'held';
-          const isUnavailable = isSold || isReserved || isHeld;
+          const status = resolveSeatStatus(seat, {
+            soldSeats,
+            holds,
+            selectedSeats,
+            now,
+            simulationSeeded,
+          });
+          const isSelected = status === 'selected';
+          const isUnavailable = !isSeatSelectable(status);
 
-          let fill = 'var(--color-seat-available)';
-          let stroke = 'var(--color-seat-available-stroke)';
-          let strokeWidth = 0.35;
-          let textColor = '#334155'; // slate-700 - reads on white/light fills
-
-          if (isSold) {
-            fill = 'var(--color-seat-sold)';
-            stroke = 'none';
-          } else if (isReserved) {
-            fill = 'var(--color-seat-reserved)';
-            stroke = 'none';
-          } else if (isHeld) {
-            fill = 'var(--color-seat-held)';
-            stroke = 'none';
-            textColor = 'white';
-          } else if (isSelected) {
-            // A visible ring (not just a fill swap) makes "selected" read as
-            // a checked state at a glance, matching a real ticket-booking UI.
-            fill = 'var(--color-seat-selected)';
-            stroke = 'white';
-            strokeWidth = 0.4;
-            textColor = 'white';
-          } else {
-            stroke = TIER_STROKE[seat.priceTier] ?? 'var(--color-seat-available-stroke)';
+          const style = SEAT_STATUS_STYLE[status];
+          const { fill, textColor } = style;
+          let { stroke, strokeWidth } = style;
+          // The only piece of styling the status table can't express - an
+          // available seat's stroke depends on its own price tier, not
+          // just its status.
+          if (status === 'available') {
+            stroke = TIER_STROKE[seat.priceTier] ?? stroke;
           }
 
           const isHighlighted = highlightedSeatIds?.has(seat.id) ?? false;
@@ -155,8 +164,7 @@ const Seats = memo(function Seats({ rows }: SeatsProps) {
             strokeWidth = 0.5;
           }
 
-          const effectiveStatus = isSold ? 'sold' : seat.status;
-          const label = `Row ${rowLetter(rowIndex)} Seat ${seat.col}, Price $${seat.priceTier}, ${effectiveStatus}`;
+          const label = `Row ${rowLetter(rowIndex)} Seat ${seat.col}, Price $${getTier(seat.priceTier).price}, ${describeSeatStatus(status)}`;
 
           return (
             <g

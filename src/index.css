@@ -20,6 +20,9 @@
 
   /* Ring shown on a sold seat while its booking is open in Booking History */
   --color-booking-highlight: #7c3aed;
+
+  /* Checkout countdown once under a minute remains */
+  --color-hold-warning: #d97706;
 }
 
 /* Plays once when a seat's rect gains this class (i.e. the instant it
@@ -98,6 +101,29 @@
 
 @media (prefers-reduced-motion: reduce) {
   .seat-highlight-pulse {
+    animation: none;
+  }
+}
+
+/* Continuous, and only applied for the checkout timer's final 30 seconds -
+   a last, harder-to-miss cue on top of the amber color swap that already
+   happens earlier, once the deadline is genuinely close. */
+@keyframes hold-timer-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.hold-timer-pulse {
+  animation: hold-timer-pulse 1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hold-timer-pulse {
     animation: none;
   }
 }

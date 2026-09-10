@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { HoldMap } from '../interfaces/venue.interfaces';
+import { SELECTION_HOLD_MS } from '../utils/holdProtocol';
 import { MAX_SELECTABLE_SEATS, useVenueStore } from './seatStore';
 
 // Throwing (rather than `expect(raw).not.toBeNull()` + a `!` at the call
@@ -19,9 +21,16 @@ const resetStore = () => {
     viewingBookingId: null,
     zoom: 0.4,
     feedback: null,
+    holds: new Map(),
+    selectionExpiresAt: null,
+    simulationSeeded: false,
   });
   localStorage.clear();
 };
+
+function holdMap(seatId: string, expiresAt: number, owner = 'peer'): HoldMap {
+  return new Map([[seatId, { seatId, owner, expiresAt }]]);
+}
 
 describe('seatStore', () => {
   beforeEach(resetStore);
@@ -58,6 +67,49 @@ describe('seatStore', () => {
     useVenueStore.getState().toggleSeat('SEAT-2');
     useVenueStore.getState().clearSelection();
     expect(useVenueStore.getState().selectedSeats.size).toBe(0);
+  });
+
+  it('clearSelection nulls the checkout deadline', () => {
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    useVenueStore.getState().clearSelection();
+    expect(useVenueStore.getState().selectionExpiresAt).toBeNull();
+  });
+
+  describe('checkout hold timing', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('the first seat added starts the checkout deadline', () => {
+      useVenueStore.getState().toggleSeat('SEAT-1');
+      expect(useVenueStore.getState().selectionExpiresAt).toBe(SELECTION_HOLD_MS);
+    });
+
+    it('adding a second seat does not extend the deadline', () => {
+      useVenueStore.getState().toggleSeat('SEAT-1');
+      vi.advanceTimersByTime(10_000);
+      useVenueStore.getState().toggleSeat('SEAT-2');
+      expect(useVenueStore.getState().selectionExpiresAt).toBe(SELECTION_HOLD_MS);
+    });
+
+    it('refuses to select a seat with a live foreign hold, with feedback', () => {
+      useVenueStore.setState({ holds: holdMap('SEAT-1', 5_000) });
+      useVenueStore.getState().toggleSeat('SEAT-1');
+      expect(useVenueStore.getState().selectedSeats.has('SEAT-1')).toBe(false);
+      expect(useVenueStore.getState().feedback?.type).toBe('error');
+    });
+
+    it('allows selecting a seat whose hold has already lapsed', () => {
+      useVenueStore.setState({ holds: holdMap('SEAT-1', 500) });
+      vi.setSystemTime(1_000);
+      useVenueStore.getState().toggleSeat('SEAT-1');
+      expect(useVenueStore.getState().selectedSeats.has('SEAT-1')).toBe(true);
+    });
   });
 
   it('confirmPurchase moves selected seats into soldSeats and empties the cart', () => {
@@ -103,6 +155,99 @@ describe('seatStore', () => {
     expect(bookings).toHaveLength(2);
     expect(bookings[0]?.seatIds).toEqual(['SEAT-2']);
     expect(bookings[1]?.seatIds).toEqual(['SEAT-1']);
+  });
+
+  it('confirmPurchase returns the booking and nulls the checkout deadline', () => {
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    const booking = useVenueStore.getState().confirmPurchase(7000);
+    expect(booking?.seatIds).toEqual(['SEAT-1']);
+    expect(useVenueStore.getState().selectionExpiresAt).toBeNull();
+  });
+
+  it('confirmPurchase refuses an already-expired hold: no booking, cart cleared, error feedback', () => {
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    useVenueStore.setState({ selectionExpiresAt: Date.now() - 1 });
+
+    const booking = useVenueStore.getState().confirmPurchase(7000);
+
+    expect(booking).toBeNull();
+    expect(useVenueStore.getState().selectedSeats.size).toBe(0);
+    expect(useVenueStore.getState().soldSeats.has('SEAT-1')).toBe(false);
+    expect(useVenueStore.getState().bookings).toHaveLength(0);
+    expect(useVenueStore.getState().feedback?.type).toBe('error');
+  });
+
+  it('confirmPurchase still succeeds when selectionExpiresAt is null (e.g. state seeded directly)', () => {
+    useVenueStore.setState({ selectedSeats: new Set(['SEAT-1']), selectionExpiresAt: null });
+    const booking = useVenueStore.getState().confirmPurchase(7000);
+    expect(booking).not.toBeNull();
+    expect(useVenueStore.getState().soldSeats.has('SEAT-1')).toBe(true);
+  });
+
+  it('releaseLostSeats drops just the named seats and nulls the deadline if the cart empties', () => {
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    useVenueStore.getState().releaseLostSeats(['SEAT-1']);
+    expect(useVenueStore.getState().selectedSeats.size).toBe(0);
+    expect(useVenueStore.getState().selectionExpiresAt).toBeNull();
+    expect(useVenueStore.getState().feedback?.type).toBe('error');
+  });
+
+  it('applyRemoteSold marks seats sold, drops their holds, and removes them from my selection', () => {
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    useVenueStore.setState({ holds: holdMap('SEAT-2', 9_000) });
+
+    useVenueStore.getState().applyRemoteSold(['SEAT-1', 'SEAT-2']);
+
+    const state = useVenueStore.getState();
+    expect(state.soldSeats.has('SEAT-1')).toBe(true);
+    expect(state.soldSeats.has('SEAT-2')).toBe(true);
+    expect(state.holds.has('SEAT-2')).toBe(false);
+    expect(state.selectedSeats.has('SEAT-1')).toBe(false);
+    expect(state.selectionExpiresAt).toBeNull();
+  });
+
+  it('seedSimulation is a no-op once simulationSeeded is already true', () => {
+    useVenueStore.setState({ simulationSeeded: true, holds: holdMap('SEAT-1', 9_000) });
+    useVenueStore.getState().seedSimulation(holdMap('SEAT-2', 9_000));
+    expect(useVenueStore.getState().holds.has('SEAT-1')).toBe(true);
+    expect(useVenueStore.getState().holds.has('SEAT-2')).toBe(false);
+  });
+
+  describe('runExpiry', () => {
+    it('leaves the holds map reference identical when nothing has lapsed', () => {
+      const holds = holdMap('SEAT-1', 9_000);
+      useVenueStore.setState({ holds });
+      useVenueStore.getState().runExpiry(1_000);
+      // Reference identity (`toBe`), not just equal contents - this is what
+      // lets a routine tick skip re-rendering ~1,500 mounted seats.
+      expect(useVenueStore.getState().holds).toBe(holds);
+    });
+
+    it('prunes a lapsed hold', () => {
+      useVenueStore.setState({ holds: holdMap('SEAT-1', 500) });
+      useVenueStore.getState().runExpiry(1_000);
+      expect(useVenueStore.getState().holds.size).toBe(0);
+    });
+
+    it('releases an expired selection with feedback', () => {
+      useVenueStore.setState({
+        selectedSeats: new Set(['SEAT-1']),
+        selectionExpiresAt: 500,
+      });
+      useVenueStore.getState().runExpiry(1_000);
+      expect(useVenueStore.getState().selectedSeats.size).toBe(0);
+      expect(useVenueStore.getState().selectionExpiresAt).toBeNull();
+      expect(useVenueStore.getState().feedback?.type).toBe('info');
+    });
+
+    it('does nothing when the selection deadline is still in the future', () => {
+      useVenueStore.setState({
+        selectedSeats: new Set(['SEAT-1']),
+        selectionExpiresAt: 9_000,
+      });
+      useVenueStore.getState().runExpiry(1_000);
+      expect(useVenueStore.getState().selectedSeats.has('SEAT-1')).toBe(true);
+    });
   });
 
   it('toggleSeat clears any booking currently being viewed', () => {
@@ -230,5 +375,31 @@ describe('seatStore', () => {
     useVenueStore.setState({ bookings: parsed.state.bookings });
 
     expect(useVenueStore.getState().bookings).toHaveLength(1);
+  });
+
+  it('persists the checkout deadline across a save/reload cycle', async () => {
+    useVenueStore.getState().toggleSeat('SEAT-1');
+    const deadline = useVenueStore.getState().selectionExpiresAt;
+
+    await Promise.resolve();
+
+    const raw = getPersistedRaw();
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    const parsed = JSON.parse(raw) as unknown as { state: { selectionExpiresAt: number | null } };
+    expect(parsed.state.selectionExpiresAt).toBe(deadline);
+
+    useVenueStore.setState({ selectionExpiresAt: null });
+    useVenueStore.setState({ selectionExpiresAt: parsed.state.selectionExpiresAt });
+    expect(useVenueStore.getState().selectionExpiresAt).toBe(deadline);
+  });
+
+  it('never writes holds to localStorage - they are session-local, not persisted state', async () => {
+    useVenueStore.setState({ holds: holdMap('SEAT-1', 9_000) });
+    useVenueStore.getState().toggleSeat('SEAT-2');
+
+    await Promise.resolve();
+
+    const raw = getPersistedRaw();
+    expect(raw).not.toContain('"holds"');
   });
 });

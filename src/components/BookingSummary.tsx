@@ -32,11 +32,14 @@ export default function BookingSummary({ venue }: BookingSummaryProps) {
   }, [confirmedTotal]);
 
   const handleConfirmPurchase = (total: number) => {
-    // Booking is confirmed: mark these seats sold (persisted - see
-    // seatStore.ts) so they stay unavailable across a reload instead of
-    // quietly becoming selectable again, and record it in booking history.
-    setConfirmedTotal(total);
-    confirmPurchase(total);
+    // confirmPurchase re-validates the checkout deadline itself and
+    // returns null if it had already lapsed - only show the "confirmed"
+    // banner for a sale that actually happened. On success it marks these
+    // seats sold (persisted - see seatStore.ts) so they stay unavailable
+    // across a reload instead of quietly becoming selectable again, and
+    // records it in booking history.
+    const booking = confirmPurchase(total);
+    if (booking) setConfirmedTotal(total);
   };
 
   // Live seat selection takes over the sidebar the moment it starts, and
