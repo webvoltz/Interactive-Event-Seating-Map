@@ -4,7 +4,7 @@ import type { PersistStorage, StorageValue } from 'zustand/middleware';
 
 export const MAX_SELECTABLE_SEATS = 8;
 
-interface Feedback {
+export interface Feedback {
   type: 'info' | 'error';
   message: string;
 }
@@ -39,11 +39,13 @@ interface VenueState {
   setPan: (pan: { x: number; y: number }) => void;
   setView: (zoom: number, pan: { x: number; y: number }, transitionMs: number) => void;
   toggleSeat: (seatId: string) => void;
+  selectSeatBlock: (seatIds: string[], sectionId: string) => void;
   clearSelection: () => void;
   confirmPurchase: (total: number) => void;
   viewBooking: (id: string) => void;
   clearViewingBooking: () => void;
   clearFeedback: () => void;
+  setFeedback: (feedback: Feedback) => void;
 }
 
 type PersistedVenueState = Pick<VenueState, 'selectedSeats' | 'soldSeats' | 'bookings'>;
@@ -138,6 +140,30 @@ export const useVenueStore = create<VenueState>()(
           return { selectedSeats: newSelected, viewingBookingId: null };
         }),
 
+      // A whole contiguous block (from the best-seats finder) arrives as one
+      // unit, so it's one atomic transition - toggleSeat() can't express
+      // this without tripping the MAX_SELECTABLE_SEATS check partway
+      // through and firing one feedback per seat. Setting activeSectionId
+      // in the same update (rather than a separate setActiveSection call)
+      // means there's no intermediate commit where the seats are selected
+      // but their section isn't the mounted one yet.
+      selectSeatBlock: (seatIds, sectionId) =>
+        set(() => {
+          if (seatIds.length === 0 || seatIds.length > MAX_SELECTABLE_SEATS) {
+            return {
+              feedback: {
+                type: 'error',
+                message: `You can select a maximum of ${MAX_SELECTABLE_SEATS} seats.`,
+              },
+            };
+          }
+          return {
+            selectedSeats: new Set(seatIds),
+            activeSectionId: sectionId,
+            viewingBookingId: null,
+          };
+        }),
+
       clearSelection: () => set({ selectedSeats: new Set() }),
 
       // The "checkout" transition: move whatever is currently selected into
@@ -166,6 +192,7 @@ export const useVenueStore = create<VenueState>()(
       clearViewingBooking: () => set({ viewingBookingId: null }),
 
       clearFeedback: () => set({ feedback: null }),
+      setFeedback: (feedback) => set({ feedback }),
     }),
     {
       name: 'venue-storage',
