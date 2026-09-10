@@ -1,9 +1,7 @@
 import type { HoldMessage } from '../interfaces/venue.interfaces';
 import { HOLD_CHANNEL_NAME, isHoldMessage } from './holdProtocol';
 
-// The minimal surface this module actually uses from BroadcastChannel -
-// letting a fake bus stand in for it in tests without needing jsdom (which,
-// verified, doesn't implement BroadcastChannel at all) to support it.
+// Minimal surface used from BroadcastChannel, so tests can supply a fake (jsdom has none).
 export interface BroadcastChannelLike {
   postMessage: (message: unknown) => void;
   close: () => void;
@@ -22,12 +20,6 @@ function defaultFactory(name: string): BroadcastChannelLike | null {
   return new BroadcastChannel(name);
 }
 
-// Wraps BroadcastChannel behind a feature-detected, injectable factory.
-// When unavailable (no global, or construction throws - some privacy modes
-// do) this returns a no-op channel rather than throwing, so every other
-// feature (checkout timer, simulated holds, the resolver) keeps working
-// with cross-tab contention simply absent - the correct degradation for an
-// enhancement, not a requirement.
 export function createHoldChannel(
   sessionId: string,
   onMessage: (message: HoldMessage) => void,
@@ -47,8 +39,6 @@ export function createHoldChannel(
   const activeChannel = channel;
   const listener = (event: { data: unknown }) => {
     if (!isHoldMessage(event.data)) return;
-    // BroadcastChannel never echoes to its own poster, but a fake test bus
-    // might - dropping self-originated messages here keeps both honest.
     if (event.data.from === sessionId) return;
     onMessage(event.data);
   };

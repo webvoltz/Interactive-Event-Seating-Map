@@ -54,11 +54,7 @@ const sections = Array.from({ length: SECTIONS }, (_, sectionIndex) => {
         seats: Array.from({ length: SEATS_PER_ROW }, (_, seatIndex) => {
           const angle = startAngle + ((endAngle - startAngle) * seatIndex) / SEATS_PER_ROW;
 
-          // Rounding to whole pixels here would be fine at map scale, but
-          // adjacent seats are only ~3-4 units apart (about one seat box
-          // wide) - integer rounding turns the true smooth arc into a
-          // visible zig-zag once zoomed in. Two decimals keeps the file
-          // readable while staying well under any visible error.
+          // Two decimals: whole-pixel rounding turns the arc into a visible zig-zag when zoomed in.
           const x = Math.round((CENTER_X + Math.cos(angle) * radius) * 100) / 100;
           const y = Math.round((CENTER_Y + Math.sin(angle) * radius) * 100) / 100;
 

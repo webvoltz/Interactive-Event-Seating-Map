@@ -28,9 +28,6 @@ export default function SeatSelectionPanel({ venue }: SeatSelectionPanelProps) {
       if (!entry) return;
       details.push({
         id: seatId,
-        // Row shown as the same letter the map uses so a sidebar entry and
-        // its seat on the map read identically - "Row 15" here and "Row O"
-        // there was the same row, confusingly.
         label: `${entry.sectionLabel} | Row ${entry.rowLabel} | Seat ${entry.seatCol}`,
         price: entry.price,
         tierName: entry.tierName,

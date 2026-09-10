@@ -64,9 +64,6 @@ describe('translateExpiry', () => {
 
 describe('pruneHolds', () => {
   it('returns the identical map reference when nothing has lapsed', () => {
-    // Asserted with `toBe` (reference identity), not `toEqual` - this is
-    // what lets the store skip a `set()` call, and skipping the write is
-    // what keeps ~1,500 mounted seats from re-rendering on every tick.
     const holds = holdMap({ seatId: 'S1', owner: 'peer', expiresAt: 10_000 });
     expect(pruneHolds(holds, 5_000)).toBe(holds);
   });
@@ -198,8 +195,6 @@ describe('ingestPeerHold', () => {
 describe('adoptRemoteState', () => {
   it('adopts every hold in the snapshot as authoritative, without a tie-break', () => {
     const snapshot: WireHold[] = [{ seatId: 'S1', owner: 'incumbent', expiresAt: 9_000 }];
-    // My session id sorts lower than the incumbent's - a tie-break would
-    // normally favour me, but join-time state is authoritative regardless.
     const result = adoptRemoteState(new Set(['S1']), 'aaa', snapshot);
     expect(result.holds.get('S1')?.owner).toBe('incumbent');
     expect(result.lostSeatIds).toEqual(['S1']);

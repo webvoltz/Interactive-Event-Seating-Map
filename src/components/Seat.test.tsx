@@ -8,8 +8,6 @@ function holdMap(...holds: { seatId: string; owner: string; expiresAt: number }[
   return new Map(holds.map((h) => [h.seatId, h]));
 }
 
-// Two aligned rows of three seats so Arrow{Up,Down} land on a predictable
-// nearest-x match, and Arrow{Left,Right} walk within a row.
 const rows: Row[] = [
   {
     index: 1,
@@ -31,10 +29,6 @@ const rows: Row[] = [
 
 const renderSeats = () => render(<svg>{<Seats rows={rows} />}</svg>);
 
-// Small test-local helpers rather than `!` at each call site: they fail
-// with a clear message if a seat/element genuinely isn't there, instead of
-// silently asserting past a `null` that would otherwise surface as a
-// confusing "cannot call focus on null" a few lines later.
 function getSeat(id: string): HTMLElement {
   const el = document.getElementById(id);
   if (!el) throw new Error(`Expected element #${id} to exist in the rendered test DOM.`);
@@ -154,7 +148,6 @@ describe('Seats keyboard navigation and selection', () => {
     expect(seatA2.getAttribute('aria-disabled')).toBe('false');
     fireEvent.click(seatA2);
     expect(useVenueStore.getState().selectedSeats.has('A2')).toBe(true);
-    // Same DOM node throughout (stable `key`), so focus was never lost.
     expect(document.activeElement).toBe(document.getElementById('seat-A2'));
   });
 

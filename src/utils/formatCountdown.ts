@@ -7,11 +7,7 @@ export function formatCountdown(remainingMs: number): string {
 
 export type CountdownMilestone = 'start' | '2min' | '1min' | '30s' | '10s' | 'expired';
 
-// Bands, not exact seconds - this is what keeps an aria-live announcement of
-// the milestone from firing every tick. The band a given remaining time
-// falls into is stable across an entire minute-or-more range, so the
-// announced text is byte-identical for most of a session and only changes
-// six times over a five-minute hold.
+// Bands (not exact seconds) so an aria-live announcement doesn't fire every tick.
 export function pickCountdownMilestone(remainingMs: number): CountdownMilestone {
   const totalSeconds = Math.ceil(remainingMs / 1000);
   if (totalSeconds <= 0) return 'expired';
