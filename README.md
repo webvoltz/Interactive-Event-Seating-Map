@@ -21,8 +21,8 @@ keeping the map interactive at that scale using nothing heavier than React + SVG
 
 ## 📸 Screenshots
 
-**Overview** - the full venue map with all 10 sections collapsed, and the Booking History sidebar
-in its default state.
+**Overview** - the full venue map with all 10 sections collapsed, and the sidebar showing the Best
+Seats Finder, price tiers, and booking history from prior purchases.
 
 ![Venue overview](docs/screenshots/overview.png)
 
@@ -35,6 +35,17 @@ held) visible at once, with the live selected-seats list and running total in th
 exact seats back on the map.
 
 ![Booking history with a highlighted past booking](docs/screenshots/booking-history.png)
+
+**Best Seats Finder** - pick a party size and priority ("Best view" or "Best price") and the
+solver focuses/selects the single best contiguous block on the map.
+
+![Best seats finder panel picking a block of seats](docs/screenshots/best-seats-finder.png)
+
+**Floating selection toolbar & status legend** - the bottom-center toolbar (seat count, running
+total, checkout countdown, one-click clear) and the top-right status legend, both overlaid on the
+map itself so they stay visible even with the sidebar closed.
+
+![Floating selection toolbar and seat status legend over the map](docs/screenshots/selection-toolbar.png)
 
 ---
 
@@ -56,6 +67,9 @@ flowchart TD
     A --> K["HoldRuntime<br/>(renders nothing)"]
     K -.expiry timer.-> H
     K <-.BroadcastChannel.-> L["Other tabs"]
+    A --> M["SeatStatusLegend<br/>(fixed corner card)"]
+    A --> N["SelectionToolbar<br/>(floating, hidden when empty)"]
+    H -.reads.-> N
 ```
 
 ### 15,000+ seat rendering: section-level collapsing
@@ -136,6 +150,20 @@ Real ticketing sites don't just mark seats "held" once and forget - holds expire
   routine tick with nothing to do costs zero re-renders across the ~1,500 mounted seats - verified
   by a reference-equality (`toBe`) test, not just a behavioral one.
 
+### At-a-glance status and selection overlays
+
+Two small, always-available overlays sit on top of the map itself rather than in the sidebar, so
+they stay visible on mobile even when the booking panel is closed:
+
+- [`SeatStatusLegend.tsx`](src/components/SeatStatusLegend.tsx) is a fixed corner card explaining
+  what each seat color means (selected/sold/reserved/held) - it doesn't read from the store, it's
+  static reference UI for a map that otherwise relies on color alone to convey status.
+- [`SelectionToolbar.tsx`](src/components/SelectionToolbar.tsx) is a floating toolbar, bottom-center
+  over the map, that appears only once at least one seat is selected. It mirrors the sidebar's
+  running total and checkout countdown (via the same [`useCountdown.ts`](src/hooks/useCountdown.ts))
+  and offers a one-click "Remove" to clear the whole selection, without requiring the user to open
+  the sidebar first.
+
 ---
 
 ## ♿ Accessibility
@@ -149,6 +177,10 @@ Real ticketing sites don't just mark seats "held" once and forget - holds expire
 - Feedback that used to be a blocking `alert()` (hitting the 8-seat cap, the payment stub) is now
   an `aria-live="polite"` [`Toast`](src/components/Toast.tsx) region and inline confirmation state,
   so screen readers announce it without interrupting keyboard flow.
+- The floating overlays are landmarked, not just styled: [`SeatStatusLegend`](src/components/SeatStatusLegend.tsx)
+  is `role="region"` with an `aria-label`, and [`SelectionToolbar`](src/components/SelectionToolbar.tsx)
+  is `role="toolbar"` with an `aria-label`, so assistive tech announces them as distinct, navigable
+  regions rather than unlabeled floating `<div>`s.
 
 ---
 
@@ -161,6 +193,11 @@ Real ticketing sites don't just mark seats "held" once and forget - holds expire
   `held` seats expire and release on their own; two browser tabs share holds and sales live via
   `BroadcastChannel`, with a deterministic tie-break if they pick the same seat at once.
 - **Map navigation**: Click-and-drag panning with smart zoom in/out controls.
+- **Seat status legend**: A persistent corner card decoding every seat color (selected, sold,
+  reserved, held) at a glance.
+- **Floating selection toolbar**: A bottom-center overlay - visible whenever seats are selected,
+  even with the sidebar closed - showing seat count, running total, checkout countdown, and a
+  one-click clear.
 - **Accessibility**: Full arrow-key navigation between seats, keyboard-selectable seats (`role="checkbox"`).
 - **Persisted selection**: Selected seats survive a page refresh (Zustand + `localStorage`).
 - **Responsive layout**: A collapsible booking sidebar on mobile, side-by-side on desktop.
@@ -207,7 +244,8 @@ See [Engineering standards](#-engineering-standards) below for details.
 ├── src/
 │   ├── components/    # VenueMap, Section, Seat, BookingSummary, SeatSelectionPanel,
 │   │                   # SeatSelectionFooter, BookingHistoryPanel, BestSeatsFinder,
-│   │                   # CheckoutTimer, HoldRuntime, ConfirmDialog, Toast, Icon, IconButton
+│   │                   # CheckoutTimer, HoldRuntime, SeatStatusLegend, SelectionToolbar,
+│   │                   # ConfirmDialog, Toast, Icon, IconButton
 │   ├── hooks/
 │   │   ├── useVenue.ts        # Fetches and validates public/venue.json
 │   │   ├── useCountdown.ts    # Self-correcting per-second countdown, isolated from the store
