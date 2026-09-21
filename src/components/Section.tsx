@@ -183,7 +183,9 @@ function Section({ section, bounds }: { section: Section; bounds: VenueContentBo
             x={labelPos.x}
             y={labelPos.y - 5}
             textAnchor="middle"
-            className="text-sm font-bold fill-slate-700"
+            fontSize="32"
+            fontWeight="800"
+            className="fill-slate-700"
             style={{ pointerEvents: 'none' }}
           >
             {section.label}
