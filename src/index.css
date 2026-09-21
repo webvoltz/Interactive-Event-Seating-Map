@@ -1,1 +1,115 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+@theme {
+  /* Seat status */
+  --color-seat-available: #ffffff;
+  --color-seat-available-stroke: #059669;
+  --color-seat-selected: #10b981;
+  --color-seat-sold: #d1d5db;
+  --color-seat-reserved: #fbbf24;
+  --color-seat-held: #f87171;
+
+  /* Price tiers (used both as SVG stroke colors and legend swatch borders) */
+  --color-tier-1: #eab308;
+  --color-tier-2: #6b7280;
+  --color-tier-3: #f97316;
+
+  /* Brand header gradient */
+  --color-brand-from: #60a5fa;
+  --color-brand-to: #818cf8;
+
+  --color-booking-highlight: #7c3aed;
+  --color-hold-warning: #d97706;
+}
+
+/* Plays once, on selection. */
+@keyframes seat-select-pop {
+  0% {
+    transform: scale(0.75);
+    opacity: 0.35;
+  }
+  55% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.seat-select-pop {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: seat-select-pop 300ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seat-select-pop {
+    animation: none;
+  }
+}
+
+/* Plays on mount, opening or closing a section. */
+@keyframes section-activate {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.section-activate {
+  animation: section-activate 250ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-activate {
+    animation: none;
+  }
+}
+
+/* Loops continuously while a booking's seats are highlighted. */
+@keyframes seat-highlight-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 0 color-mix(in srgb, var(--color-booking-highlight) 70%, transparent));
+  }
+  50% {
+    filter: drop-shadow(
+      0 0 0.6px color-mix(in srgb, var(--color-booking-highlight) 70%, transparent)
+    );
+  }
+}
+
+.seat-highlight-pulse {
+  animation: seat-highlight-pulse 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seat-highlight-pulse {
+    animation: none;
+  }
+}
+
+/* Loops during the checkout timer's final 30 seconds. */
+@keyframes hold-timer-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.hold-timer-pulse {
+  animation: hold-timer-pulse 1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hold-timer-pulse {
+    animation: none;
+  }
+}

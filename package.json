@@ -1,35 +1,76 @@
 {
   "name": "event-seating",
+  "description": "High-performance React seating map for 15,000+ interactive seats, rendered with section-level SVG virtualization and Zustand-persisted selection.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webvoltz/Interactive-Event-Seating-Map.git"
+  },
+  "keywords": [
+    "react",
+    "typescript",
+    "vite",
+    "zustand",
+    "svg",
+    "performance",
+    "accessibility"
+  ],
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": ">=11 <12"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "eslint .",
+    "start": "vite preview",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint . --max-warnings=0",
+    "prepare": "husky",
     "preview": "vite preview",
+    "quality": "pnpm format:check && pnpm lint && pnpm typecheck",
+    "security:audit": "pnpm audit --audit-level high",
+    "test": "vitest run --coverage --passWithNoTests",
+    "typecheck": "tsc -b",
     "generate:venue": "ts-node scripts/generateVenue.ts"
   },
   "dependencies": {
-    "@tailwindcss/vite": "^4.1.18",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "tailwindcss": "^4.1.18",
-    "zustand": "^5.0.9"
+    "@tailwindcss/vite": "4.3.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tailwindcss": "4.3.3",
+    "zustand": "5.0.15"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
-    "@types/node": "^24.10.1",
-    "@types/react": "^19.2.5",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.1",
-    "eslint": "^9.39.1",
-    "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-react-refresh": "^0.4.24",
-    "globals": "^16.5.0",
-    "ts-node": "^10.9.2",
-    "typescript": "~5.9.3",
-    "typescript-eslint": "^8.46.4",
-    "vite": "^7.2.4"
-  }
+    "@commitlint/cli": "21.2.2",
+    "@commitlint/config-conventional": "21.2.2",
+    "@eslint/js": "9.39.5",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.7",
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "5.2.0",
+    "@vitest/coverage-v8": "5.0.0",
+    "eslint": "9.39.5",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-jsx-a11y": "6.10.2",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-refresh": "0.4.26",
+    "globals": "16.5.0",
+    "husky": "9.1.7",
+    "jsdom": "30.0.1",
+    "lint-staged": "17.5.0",
+    "prettier": "3.9.6",
+    "ts-node": "10.9.2",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.69.0",
+    "vite": "7.3.6",
+    "vitest": "5.0.0"
+  },
+  "packageManager": "pnpm@11.6.0"
 }

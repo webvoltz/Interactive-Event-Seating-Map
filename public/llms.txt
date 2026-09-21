@@ -1,0 +1,6 @@
+# Grand Horizon Arena Seating Map
+
+A demo interactive event seating map and ticket-booking flow for a fictional
+15,000-seat arena - browse sections, pick seats, and check out.
+
+- [Live app](/)

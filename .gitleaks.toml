@@ -1,0 +1,4 @@
+title = "Interactive Event Seating Map secret scanning"
+
+[extend]
+useDefault = true
