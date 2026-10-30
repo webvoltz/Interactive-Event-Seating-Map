@@ -49,6 +49,94 @@ map itself so they stay visible even with the sidebar closed.
 
 ---
 
+## 🎟️ On-Sale Day Simulator ("Drop Day")
+
+Press **Open sales** and up to **20,000 simulated buyers** rush the 15,000-seat venue at once. They
+queue in a waiting room, compete for seats, hold them, then pay or give up - all live on the map,
+entirely in the browser (no backend, no network calls after page load). It shows how the booking
+system behaves under launch-day pressure: seat clashes, fairness, sell-through and revenue.
+
+**Live rush** - a sale in progress with the heatmap on (each section coloured by how fast it is
+selling). The stats panel (left) tracks sold %, revenue, holds, clashes per second, queue and waits;
+the waiting-room bar (bottom) shows the queue, your place in it, and the timeline.
+
+![Drop Day: a live 20,000-buyer rush with the sell-rate heatmap](docs/screenshots/drop-day-live.png)
+
+**End-of-sale summary** - seats sold, revenue, time to sell out, average wait, buyers served / turned
+away / gave up, expired holds and seat clashes, plus the fastest and slowest sections.
+
+![Drop Day: end-of-sale summary card](docs/screenshots/drop-day-summary.png)
+
+**Replay** - drag the timeline and the map is rebuilt at that exact moment from the recorded event
+log (here, 32 seconds into the sale). The sale pauses while you scrub; "Go live" resumes it.
+
+![Drop Day: replaying a past moment of the sale](docs/screenshots/drop-day-replay.png)
+
+**Play as a buyer** - join the waiting room and, once admitted, pick seats in the normal booking UI
+while the crowd competes around you. Your picks are real holds the crowd cannot take; the existing
+checkout timer still decides expiry, and paying sells the seats.
+
+![Drop Day: playing as a buyer, with two seats held and the checkout timer running](docs/screenshots/drop-day-buyer.png)
+
+### Using it
+
+Open the **Drop Day** panel (top right) and press **Open sales**. Controls: Pause / Resume / Reset,
+speed (1x, 10x, 100x), a heatmap toggle, and the sale settings - buyers (1,000-20,000), arrival
+pattern (sudden spike, steady, waves), queue admission rate, hold time and a random seed. The
+settings are saved in the URL, so a shared link replays the identical sale:
+
+```text
+/?buyers=20000&pattern=spike&admit=400&hold=300&seed=20261030
+```
+
+### How it works
+
+- **A pure engine** in [`src/simulation/`](src/simulation/): a seeded random generator (mulberry32), a
+  simulated clock that only ever moves in whole 100 ms ticks (so the playback speed can never change
+  the outcome), a buyer state machine (arriving, queued, admitted, searching, holding, purchased /
+  abandoned), a first-come-first-served waiting room, and a typed-array seat book. It never reads
+  `Date.now()`, so the same seed and settings always produce the same sale.
+- **Real app logic is reused.** Buyers choose seats with the existing
+  [`findBestSeats`](src/utils/findBestSeats.ts) and fall back (another section, a higher budget,
+  splitting the group) until their patience runs out. When two buyers claim a seat in the same
+  instant, the lower session id wins via the same `peerWinsClash` rule the cross-tab hold protocol
+  uses ([`holdProtocol.ts`](src/utils/holdProtocol.ts)); holds expire exactly when `pruneHolds` says
+  they would.
+- **It runs in a Web Worker**, which streams batched seat diffs (packed `seat << 2 | status` typed
+  arrays) about ten times a second. The main thread merges them once per animation frame into a
+  separate Zustand slice ([`simulationStore.ts`](src/simulation/simulationStore.ts)), so the booking
+  store is untouched.
+- **Seats keep the section-level SVG rendering**; the heatmap and sell-out highlight are drawn on a
+  separate canvas layer. Each seat is its own memoized component, so a live batch re-renders only the
+  handful of seats that changed, not all 1,500 in the open section.
+- **Replay** is an append-only log of every seat change stamped with its tick
+  ([`eventLog.ts`](src/simulation/eventLog.ts)); rebuilding the board at a moment is a prefix replay.
+  Stats for a replayed moment come from full snapshots taken every 5 simulated seconds.
+- **The waiting room admits against stock**: it never lets in more buyers than there are free seats,
+  and queued buyers keep waiting (rather than timing out) while every seat is held, so seats freed
+  by lapsed holds are sold to people still waiting.
+
+### Measured results
+
+| Requirement                                                  | Result                                                                                                                                                           |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A full sale at default settings sells out in under 2 minutes | Sold out after **31-52 s** of sale time (spike / waves / steady); every pattern ends 13,520 of 13,520 sellable seats sold                                        |
+| Same seed and settings give an identical sale                | Identical final seat map, stats and event stream across runs, across restarts in the same page, and at 10x vs 100x                                               |
+| 55+ FPS with 20,000 buyers at 10x                            | **57 FPS** average (p95 frame 16.8 ms) in the worst case: stats panel open, heatmap on, a section with 1,500 live seats open; the sale clock keeps pace at 10.0x |
+| Event log stays under ~50 MB                                 | A full 20,000-buyer sale is 24,972 changes = **0.25 MB**                                                                                                         |
+| Simulation engine coverage 90%+                              | **99.9% lines**, 99.4% functions, 98.9% statements, 81.5% branches (most uncovered branches are defensive defaults on typed-array reads)                         |
+| Existing booking flow and tests keep working                 | `pnpm quality` and `pnpm test` pass (357 tests)                                                                                                                  |
+
+Computing a complete 20,000-buyer sale takes about **1.1 s** on a laptop. Heavy rushes run off the
+main thread, so the page stays at 60 FPS even where 100x briefly cannot keep up with the crowd.
+
+**What was deliberately left out:** scalper bots and detection (the spec's phase 2), real payments
+and any backend, and dynamic pricing. If you join the sale as a buyer, your actions change the
+outcome, so a shared link reproduces the crowd's sale but not your session; replay within your own
+session is still exact.
+
+---
+
 ## 🏗️ Architecture & performance
 
 ```mermaid
@@ -182,6 +270,24 @@ they stay visible on mobile even when the booking panel is closed:
   is `role="toolbar"` with an `aria-label`, so assistive tech announces them as distinct, navigable
   regions rather than unlabeled floating `<div>`s.
 
+- **Simulator controls are keyboard-usable and screen-reader friendly.** Speed is a labelled group of
+  toggle buttons (`aria-pressed`); the timeline is a native range input with an `aria-valuetext`
+  ("00:32 of 20:29"); sold-% and per-section bars are `role="meter"`s with readable values. Charts
+  are focusable and read point by point with the arrow keys (and `Home`/`End`), every chart has a
+  **View as table** alternative, and the table is a named, keyboard-scrollable region.
+- **Stats are announced politely, not constantly.** A single `aria-live="polite"` region announces
+  25 / 50 / 75 / 90% sold, a section selling out, your admission to the sale, and the end of the
+  sale - not every tick.
+- **Motion and contrast.** The sell-out highlight holds steady (no pulsing) under
+  `prefers-reduced-motion`. An automated axe-core audit (WCAG 2.0 / 2.1 / 2.2 A and AA plus
+  best-practice rules) across idle, running, replay, summary and table states finds no violations in
+  the simulator UI; the only finding it reports is the existing section control nesting seat
+  checkboxes inside a button (`nested-interactive`), which predates the simulator and is listed in
+  [`docs/engineering-notes.md`](docs/engineering-notes.md).
+- **Responsive.** The stats panel, waiting-room bar and timeline stack above the zoom buttons on
+  small screens (stats collapsed by default) and dock around the map on large ones, without
+  covering the controls.
+
 ---
 
 ## 🚀 Features
@@ -192,6 +298,9 @@ they stay visible on mobile even when the booking panel is closed:
 - **Live seat-hold contention**: Selecting seats starts a real 5-minute checkout timer; the sample
   `held` seats expire and release on their own; two browser tabs share holds and sales live via
   `BroadcastChannel`, with a deterministic tie-break if they pick the same seat at once.
+- **On-sale day simulator**: Up to 20,000 simulated buyers rush the venue in a Web Worker - waiting
+  room, seat clashes, holds, live heatmap and stats, replay on a draggable timeline, and a mode
+  where you join the queue and buy against the crowd. Settings and seed live in the URL.
 - **Map navigation**: Click-and-drag panning with smart zoom in/out controls.
 - **Seat status legend**: A persistent corner card decoding every seat color (selected, sold,
   reserved, held) at a glance.
@@ -245,7 +354,11 @@ See [Engineering standards](#-engineering-standards) below for details.
 │   ├── components/    # VenueMap, Section, Seat, BookingSummary, SeatSelectionPanel,
 │   │                   # SeatSelectionFooter, BookingHistoryPanel, BestSeatsFinder,
 │   │                   # CheckoutTimer, HoldRuntime, SeatStatusLegend, SelectionToolbar,
-│   │                   # ConfirmDialog, Toast, Icon, IconButton
+│   │                   # ConfirmDialog, Toast, Icon, IconButton, SimulationPanel,
+│   │                   # SaleStatsPanel, SaleTopBar, SaleSummaryCard, TimeSeriesChart,
+│   │                   # HeatmapLayer, ViewerRuntime
+│   ├── simulation/    # On-sale day simulator: engine, seeded RNG, event log, worker, store
+│   │                   # (pure TypeScript engine, testable without the DOM)
 │   ├── hooks/
 │   │   ├── useVenue.ts        # Fetches and validates public/venue.json
 │   │   ├── useCountdown.ts    # Self-correcting per-second countdown, isolated from the store
@@ -358,6 +471,16 @@ ranking/tiebreak logic, the hold protocol's reducers (including a reference-equa
 no-op prune never triggers a re-render), the runtime hold simulation's determinism, and the
 checkout countdown's stable-announcement-band behavior each have their own dedicated, near-100%-covered
 test files under `src/utils/` and `src/hooks/`.
+
+The simulator adds about 135 tests, held to a higher bar than the UI around it
+(`src/simulation/**` has its own coverage thresholds in `vite.config.ts`). They include: a
+same-seed-same-result test for a full 20,000-buyer sale (final seat map, stats and event stream);
+per-tick invariants (no seat has two owners, sold seats never revert, counters match a recount of
+the board); parity with the real hold protocol (holds expire exactly when `pruneHolds` says they do;
+clashes resolve as `ingestPeerHold` does); replay exactness (the board rebuilt from the event log
+equals the true board at every sampled tick); the viewer flow against the engine; and a headless
+check that every arrival pattern sells every seat. The engine was also deliberately broken (hold
+expiry, clash tie-break, seeded randomness) to confirm these tests fail.
 
 ---
 

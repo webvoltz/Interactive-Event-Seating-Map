@@ -23,10 +23,10 @@ export default defineConfig({
       ],
       // Regression floor, ratcheted up (never down) as coverage improves - see engineering-notes.md.
       thresholds: {
-        branches: 55,
-        functions: 51,
-        lines: 55,
-        statements: 54,
+        branches: 70,
+        functions: 74,
+        lines: 80,
+        statements: 79,
         // The sale engine is held to a much higher bar than the UI around it.
         'src/simulation/**': { branches: 75, functions: 90, lines: 90, statements: 90 },
       },

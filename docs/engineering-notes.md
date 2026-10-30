@@ -95,6 +95,58 @@ convenience, not consensus - a real implementation would need a server to arbitr
 "simulated" holds seeded onto venue.json's static `held` seats are exactly that: a demonstration
 of the mechanism, not a claim about real inventory.
 
+## The on-sale day simulator: decisions and limits
+
+[`src/simulation/`](../src/simulation/) is a pure-TypeScript engine (no DOM) run inside a Web Worker.
+The choices below are the non-obvious ones.
+
+- **Determinism comes from a fixed tick, not from the playback speed.** The simulated clock only moves
+  in whole 100 ms ticks and the engine never reads `Date.now()`, so 1x, 10x and 100x produce
+  byte-identical sales. Anything that must not perturb the crowd's random stream (the viewer joining,
+  hold bookkeeping) draws no random numbers.
+- **All searches in a tick read the same start-of-tick snapshot**, then claims are reconciled lowest
+  session id first (the real `peerWinsClash` rule). That is what makes two buyers genuinely want the
+  same seat at once; resolving searches one after another would never produce a clash.
+- **`findBestSeats` dominated the cost** (99% of CPU in the sell-out stretch). Passing it only the
+  rows that still have enough free seats gives the identical answer and took a full 20,000-buyer
+  sale from 12.2 s to 1.1 s of compute (final statistics matched to the last digit). `SeatBook` keeps
+  per-row free counts and a cached longest-free-run per section and price cap for that.
+- **The waiting room admits against stock.** Admitting at the full rate while only a few hundred seats
+  had been freed by lapsed holds turned thousands of buyers away and drained the queue before the
+  last seats came back (an early version ended with 85 seats unsold). It now admits no more buyers
+  than there are free seats, and queued buyers keep waiting rather than timing out while everything
+  is held.
+- **Replay is an append-only log, not snapshots.** Each seat change is two `Uint32`s (tick, packed
+  seat and status); a full 20,000-buyer sale is 24,972 entries (0.25 MB), so rebuilding the board at
+  any tick is a cheap prefix replay. Stats for a replayed moment are the full snapshots taken every
+  5 simulated seconds, so they can lag the map by up to 5 s; at sample boundaries map and stats agree
+  exactly (verified in a browser against the rendered seats).
+- **The viewer is one more buyer, past the crowd** (last session id, so they lose every tie). Their
+  holds are engine holds with no timer of their own: the booking UI's existing checkout timer decides
+  expiry and sends the release. Anything the viewer does makes that sale differ from the seed's pure
+  run, so a shared link reproduces the crowd, not the session.
+- **Rendering stays section-level SVG.** Each seat is its own memoized component; before that, every
+  batch re-rendered all ~1,500 seats of the open section (45 FPS, 160 ms stalls at 10x), after it only
+  the changed seats do (57 FPS, no long tasks). The heatmap and sell-out highlight are a separate
+  half-resolution canvas.
+
+### Simulator: known limits
+
+- **100x cannot keep up with the busiest stretch.** About 10 simulated seconds around sell-out cost
+  roughly 0.4 s of worker time, so at 100x the sale clock briefly runs behind. The page itself stays at
+  60 FPS (the work is off the main thread) and 10x is sustained exactly.
+- **Joining late can mean never getting a seat.** Joining a 20,000-buyer sale after the opening rush
+  puts you behind ~15,000 people for seats that sell out in ~30 s. That is realistic, but a poor demo:
+  use 1x, a smaller crowd, or join the instant the sale opens.
+- **Scalper bots, detection rules and the before/after comparison (the spec's phase 2) are not
+  built.**
+- **The stats panel and Drop Day panel cover part of the map** on large screens (both collapse).
+- **Accessibility audit (axe-core, WCAG 2.0-2.2 A/AA + best-practice):** no violations in any simulator
+  state. Remaining, pre-existing: the expanded section control (`role="button"`) contains the seats'
+  checkboxes (`nested-interactive`); fixing it means restructuring how a section collapses by
+  keyboard, which this work deliberately did not touch. axe also cannot compute the white-on-gradient
+  contrast of the page header, so that needs a manual check.
+
 ## Known remaining gaps
 
 - No virtualization within an active section's own seat list (see above).
@@ -113,8 +165,8 @@ of the mechanism, not a claim about real inventory.
 - **Test coverage is well below the org engineering standard.** The standard
   ([`Webvoltz-Engineering-Standards/react`](../../Webvoltz-Engineering-Standards/react)) requires
   branches 85% / functions 100% / lines 90% / statements 90%. Actual project-wide coverage today
-  (`pnpm test`, V8 provider, whole `src/` tree): **statements 54.1%, branches 56.2%, functions
-  49.4%, lines 55.1%** - up substantially since the best-seats solver and live-hold work added
+  (`pnpm test`, V8 provider, whole `src/` tree): **statements 82.0%, branches 73.6%, functions
+  76.6%, lines 82.9%** (the simulator's engine alone is 99.9% lines) - up substantially since the best-seats solver and live-hold work added
   ~15 new, near-100%-covered pure-logic modules under `src/utils/` and `src/hooks/`, but most
   _components_ still have no tests: `App.tsx`, `VenueMap.tsx`, `Section.tsx`, `BookingSummary.tsx`,
   `SeatSelectionFooter.tsx`, `BookingHistoryPanel.tsx`, `HoldRuntime.tsx`, `IconButton.tsx`,
