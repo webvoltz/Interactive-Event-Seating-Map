@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { DEFAULT_CONFIG, normalizeConfig, parseConfigFromSearch, type SimConfig } from './config';
-import type { SimStats } from './engine';
+import type { SimSample, SimStats } from './engine';
 import type { SimSpeed } from './protocol';
 
 export type SimPhase = 'idle' | 'running' | 'paused' | 'finished';
@@ -8,6 +8,7 @@ export type SimPhase = 'idle' | 'running' | 'paused' | 'finished';
 export interface SimBatch {
   seatChanges: Uint32Array;
   soldOutSections: number[];
+  samples: SimSample[];
   stats: SimStats;
 }
 
@@ -22,6 +23,8 @@ interface SimulationState {
   sectionLabels: readonly string[];
   seatVersion: number;
   stats: SimStats | null;
+  series: readonly SimSample[];
+  summaryDismissed: boolean;
   // Section index -> `performance.now()` when it sold out, for the brief highlight.
   soldOutAt: Readonly<Record<number, number>>;
   announcement: string;
@@ -37,8 +40,12 @@ interface SimulationState {
     stats: SimStats,
   ) => void;
   applyBatches: (batches: readonly SimBatch[], now: number) => void;
+  dismissSummary: () => void;
   clearRun: () => void;
 }
+
+// Announced once each as the sale passes them, so a screen reader hears progress, not a firehose.
+const SOLD_MILESTONES = [25, 50, 75, 90];
 
 const SEAT_STATUS_BITS = 2;
 const SEAT_STATUS_MASK = 0b11;
@@ -62,6 +69,8 @@ export const useSimulationStore = create<SimulationState>()((set, get) => ({
   sectionLabels: [],
   seatVersion: 0,
   stats: null,
+  series: [],
+  summaryDismissed: false,
   soldOutAt: {},
   announcement: '',
 
@@ -84,6 +93,8 @@ export const useSimulationStore = create<SimulationState>()((set, get) => ({
       seatIndexById,
       sectionLabels,
       stats,
+      series: [],
+      summaryDismissed: false,
       soldOutAt: {},
       announcement: 'Sale simulation started.',
       seatVersion: state.seatVersion + 1,
@@ -97,7 +108,12 @@ export const useSimulationStore = create<SimulationState>()((set, get) => ({
     if (!seatStatus || !last) return;
 
     const soldOutAt: Record<number, number> = { ...previousFlashes };
+    const series = batches.flatMap((batch) => batch.samples);
     let announcement = '';
+    const crossed = SOLD_MILESTONES.filter(
+      (m) => (previous?.soldPct ?? 0) < m && last.stats.soldPct >= m,
+    ).pop();
+    if (crossed !== undefined) announcement = `${crossed} percent of seats sold.`;
     for (const batch of batches) {
       for (const packed of batch.seatChanges) {
         seatStatus[packed >>> SEAT_STATUS_BITS] = packed & SEAT_STATUS_MASK;
@@ -116,11 +132,16 @@ export const useSimulationStore = create<SimulationState>()((set, get) => ({
 
     set((state) => ({
       stats: last.stats,
+      series: series.length > 0 ? [...state.series, ...series] : state.series,
       soldOutAt,
       seatVersion: state.seatVersion + 1,
       ...(announcement && { announcement }),
       ...(finished && { phase: 'finished' as const }),
     }));
+  },
+
+  dismissSummary: () => {
+    set({ summaryDismissed: true });
   },
 
   clearRun: () => {
@@ -129,6 +150,8 @@ export const useSimulationStore = create<SimulationState>()((set, get) => ({
       seatStatus: null,
       seatIndexById: null,
       stats: null,
+      series: [],
+      summaryDismissed: false,
       soldOutAt: {},
       announcement: 'Sale simulation reset.',
       seatVersion: state.seatVersion + 1,

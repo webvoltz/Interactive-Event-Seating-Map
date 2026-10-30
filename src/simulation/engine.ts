@@ -43,7 +43,11 @@ const SESSION_ID_WIDTH = 6;
 export interface SectionStats {
   total: number;
   sold: number;
+  held: number;
+  reserved: number;
   available: number;
+  // First moment nothing in the section was left to buy, or null if that never happened.
+  soldOutAtMs: number | null;
   soldOut: boolean;
   // Seats claimed (held or sold) in the trailing 10 simulated seconds.
   velocity: number;
@@ -77,7 +81,22 @@ export interface SimStats {
   sections: SectionStats[];
 }
 
+// One point of the sale's history, taken on a fixed simulated schedule so charts repeat exactly.
+export interface SimSample {
+  t: number;
+  revenue: number;
+  soldSeats: number;
+  heldSeats: number;
+  queue: number;
+  activeHolds: number;
+  // Contested seats since the previous sample.
+  clashes: number;
+}
+
+export const SAMPLE_MS = 5_000;
+
 export interface SimDelta {
+  samples: SimSample[];
   // Packed (seatIndex << 2) | status, in the order the changes happened.
   seatChanges: Uint32Array;
   soldOutSections: number[];
@@ -131,6 +150,10 @@ export class SimulationEngine {
   private changes: number[] = [];
   private soldOutNow: number[] = [];
   private readonly sectionFlaggedSoldOut: Uint8Array;
+  private readonly sectionSoldOutAt: Float64Array;
+  private samples: SimSample[] = [];
+  private clashesAtLastSample = 0;
+  private finalSampleTaken = false;
 
   private readonly claimedBy: Int32Array;
   private readonly heatRing: Uint16Array;
@@ -175,12 +198,14 @@ export class SimulationEngine {
     this.queue = new Int32Array(n);
 
     this.sectionFlaggedSoldOut = new Uint8Array(this.book.sectionCount);
+    this.sectionSoldOutAt = new Float64Array(this.book.sectionCount).fill(Number.NaN);
     this.claimedBy = new Int32Array(this.book.seatCount).fill(NO_OWNER);
     this.heatRing = new Uint16Array(HEAT_WINDOW_TICKS * this.book.sectionCount);
     this.heatSum = new Uint32Array(this.book.sectionCount);
 
     this.generateBuyers();
     if (this.book.availableCount === 0) this.saleOverAtMs = 0;
+    this.recordSample();
   }
 
   get simTimeMs(): number {
@@ -199,11 +224,13 @@ export class SimulationEngine {
 
   drainDelta(): SimDelta {
     const delta: SimDelta = {
+      samples: this.samples,
       seatChanges: Uint32Array.from(this.changes),
       soldOutSections: this.soldOutNow,
     };
     this.changes = [];
     this.soldOutNow = [];
+    this.samples = [];
     return delta;
   }
 
@@ -220,10 +247,17 @@ export class SimulationEngine {
     const sections: SectionStats[] = [];
     for (let s = 0; s < this.book.sectionCount; s++) {
       const available = this.book.sectionAvailable[s] ?? 0;
+      const total = this.book.sectionSeatTotal[s] ?? 0;
+      const sold = this.book.sectionSold[s] ?? 0;
+      const reserved = this.book.sectionReserved[s] ?? 0;
+      const soldOutAt = this.sectionSoldOutAt[s] ?? Number.NaN;
       sections.push({
-        total: this.book.sectionSeatTotal[s] ?? 0,
-        sold: this.book.sectionSold[s] ?? 0,
+        total,
+        sold,
+        held: total - sold - reserved - available,
+        reserved,
         available,
+        soldOutAtMs: Number.isNaN(soldOutAt) ? null : soldOutAt,
         soldOut: available === 0,
         velocity: this.heatSum[s] ?? 0,
       });
@@ -330,6 +364,33 @@ export class SimulationEngine {
 
     this.runSearches(searchers, slot);
     this.checkSaleOver();
+    this.sampleIfDue();
+  }
+
+  private sampleIfDue(): void {
+    if (this.now % SAMPLE_MS === 0) {
+      this.recordSample();
+    } else if (this.finished && !this.finalSampleTaken) {
+      this.recordSample();
+    }
+    if (this.finished) this.finalSampleTaken = true;
+  }
+
+  private recordSample(): void {
+    let activeHolds = 0;
+    for (let i = 0; i < this.config.buyers; i++) {
+      if (this.stage[i] === STAGE.HOLDING) activeHolds += 1;
+    }
+    this.samples.push({
+      t: this.now,
+      revenue: this.revenue,
+      soldSeats: this.book.soldCount,
+      heldSeats: this.book.heldCount,
+      queue: this.queueLive,
+      activeHolds,
+      clashes: this.clashes - this.clashesAtLastSample,
+    });
+    this.clashesAtLastSample = this.clashes;
   }
 
   private expireHeatSlot(slot: number): void {
@@ -513,6 +574,7 @@ export class SimulationEngine {
         !this.sectionFlaggedSoldOut[section]
       ) {
         this.sectionFlaggedSoldOut[section] = 1;
+        if (Number.isNaN(this.sectionSoldOutAt[section])) this.sectionSoldOutAt[section] = this.now;
         this.soldOutNow.push(section);
       }
       this.heldSeats[buyer * MAX_GROUP_SIZE + (this.heldCount[buyer] ?? 0)] = seat;

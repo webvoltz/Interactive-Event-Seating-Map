@@ -34,11 +34,6 @@ const plainButton = `${buttonClass} bg-white border-gray-300 text-gray-800 hover
 const fieldClass =
   'w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 disabled:bg-gray-100 disabled:text-gray-500';
 
-function formatClock(ms: number): string {
-  const total = Math.floor(ms / 1000);
-  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
-}
-
 interface NumberFieldProps {
   id: string;
   label: string;
@@ -107,15 +102,6 @@ function NumberField({
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md bg-gray-50 px-2 py-1.5">
-      <dt className="text-[10px] uppercase tracking-wide text-gray-500">{label}</dt>
-      <dd className="text-sm font-semibold text-gray-900 tabular-nums">{value}</dd>
-    </div>
-  );
-}
-
 function SaleButton({ venue }: { venue: Venue }) {
   const phase = useSimulationStore((s) => s.phase);
   if (phase === 'running') {
@@ -151,7 +137,6 @@ export default function SimulationPanel({ venue }: { venue: Venue }) {
   const phase = useSimulationStore((s) => s.phase);
   const speed = useSimulationStore((s) => s.speed);
   const heatmap = useSimulationStore((s) => s.heatmap);
-  const stats = useSimulationStore((s) => s.stats);
   const announcement = useSimulationStore((s) => s.announcement);
   const setConfig = useSimulationStore((s) => s.setConfig);
   const setHeatmap = useSimulationStore((s) => s.setHeatmap);
@@ -233,15 +218,6 @@ export default function SimulationPanel({ venue }: { venue: Venue }) {
           />
           Heatmap (sell rate by section)
         </label>
-
-        <dl aria-label="Live sale stats" className="grid grid-cols-2 gap-2">
-          <Stat label="Sale clock" value={formatClock(stats?.simTimeMs ?? 0)} />
-          <Stat label="Sold" value={`${(stats?.soldPct ?? 0).toFixed(1)}%`} />
-          <Stat label="In queue" value={String(stats?.queueLength ?? 0)} />
-          <Stat label="Active holds" value={String(stats?.activeHolds ?? 0)} />
-          <Stat label="Clashes / s" value={(stats?.clashesPerSec ?? 0).toFixed(1)} />
-          <Stat label="Gave up" value={String(stats?.gaveUp ?? 0)} />
-        </dl>
 
         <fieldset disabled={!idle} className="space-y-2 border-t border-gray-200 pt-3">
           <legend className="text-xs font-bold text-gray-600 uppercase tracking-wider">

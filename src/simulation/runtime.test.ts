@@ -77,6 +77,7 @@ describe('simulation store', () => {
   const batch = (changes: number[], soldOut: number[], stats: SimStats): SimBatch => ({
     seatChanges: Uint32Array.from(changes),
     soldOutSections: soldOut,
+    samples: [],
     stats,
   });
 
@@ -208,6 +209,7 @@ describe('simulation controller', () => {
       type: 'batch',
       seatChanges: Uint32Array.from([(2 << 2) | HELD]),
       soldOutSections: [],
+      samples: [],
       stats: statsFor({ simTimeMs: 500 }),
     });
     expect(useSimulationStore.getState().seatStatus?.[2]).toBe(HELD);

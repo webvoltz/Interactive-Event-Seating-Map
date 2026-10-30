@@ -6,6 +6,8 @@ import HoldRuntime from './components/HoldRuntime';
 import SeatStatusLegend from './components/SeatStatusLegend';
 import SelectionToolbar from './components/SelectionToolbar';
 import SimulationPanel from './components/SimulationPanel';
+import SaleStatsPanel from './components/SaleStatsPanel';
+import SaleSummaryCard from './components/SaleSummaryCard';
 import Icon from './components/Icon';
 import IconButton from './components/IconButton';
 import { useCallback, useEffect, useState, useRef } from 'react';
@@ -376,6 +378,8 @@ const App = () => {
 
         <SeatStatusLegend />
         <SimulationPanel venue={venue} />
+        <SaleStatsPanel />
+        <SaleSummaryCard venue={venue} />
         <SelectionToolbar venue={venue} />
       </main>
 

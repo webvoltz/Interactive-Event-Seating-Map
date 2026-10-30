@@ -1,6 +1,6 @@
 import type { Venue } from '../interfaces/venue.interfaces';
 import type { SimConfig } from './config';
-import type { SimStats } from './engine';
+import type { SimSample, SimStats } from './engine';
 
 export const SPEEDS = [1, 10, 100] as const;
 export type SimSpeed = (typeof SPEEDS)[number];
@@ -21,5 +21,7 @@ export type WorkerEvent =
       // Packed (seatIndex << 2) | status.
       seatChanges: Uint32Array;
       soldOutSections: number[];
+      // History points recorded since the previous batch.
+      samples: SimSample[];
       stats: SimStats;
     };

@@ -48,6 +48,7 @@ function onWorkerEvent(event: MessageEvent<WorkerEvent>): void {
   pending.push({
     seatChanges: message.seatChanges,
     soldOutSections: message.soldOutSections,
+    samples: message.samples,
     stats: message.stats,
   });
   // One merge per animation frame, however many batches arrived since the last.

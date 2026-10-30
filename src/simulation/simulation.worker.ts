@@ -43,10 +43,11 @@ function build(config: SimConfig): void {
 
 function emitBatch(): void {
   if (!engine) return;
-  const { seatChanges, soldOutSections } = engine.drainDelta();
-  scope.postMessage({ type: 'batch', seatChanges, soldOutSections, stats: engine.getStats() }, [
-    seatChanges.buffer,
-  ]);
+  const { seatChanges, soldOutSections, samples } = engine.drainDelta();
+  scope.postMessage(
+    { type: 'batch', seatChanges, soldOutSections, samples, stats: engine.getStats() },
+    [seatChanges.buffer],
+  );
 }
 
 function step(): void {

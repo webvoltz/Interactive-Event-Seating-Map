@@ -69,12 +69,17 @@ describe('Seats while a sale is simulated', () => {
     );
 
     const stats = statsFor();
-    useSimulationStore
-      .getState()
-      .applyBatches(
-        [{ seatChanges: Uint32Array.from([(0 << 2) | SOLD]), soldOutSections: [], stats }],
-        0,
-      );
+    useSimulationStore.getState().applyBatches(
+      [
+        {
+          seatChanges: Uint32Array.from([(0 << 2) | SOLD]),
+          soldOutSections: [],
+          samples: [],
+          stats,
+        },
+      ],
+      0,
+    );
     // The store flips the seat; React re-renders on the version bump.
     return Promise.resolve().then(() => {
       expect(document.getElementById(`seat-${ids[0]}`)?.getAttribute('aria-label')).toMatch(
@@ -192,19 +197,12 @@ describe('SimulationPanel', () => {
     expect(window.location.search).toContain('pattern=waves');
   });
 
-  it('toggles the heatmap and shows live stats', async () => {
+  it('toggles the heatmap', async () => {
     const user = userEvent.setup();
     render(<SimulationPanel venue={venue} />);
     await user.click(screen.getByRole('button', { name: 'Show' }));
     await user.click(screen.getByLabelText(/Heatmap/));
     expect(useSimulationStore.getState().heatmap).toBe(true);
-
-    useSimulationStore.setState({
-      stats: { ...statsFor(), simTimeMs: 75_000, soldPct: 42.5, queueLength: 321 },
-    });
-    expect(await screen.findByText('01:15')).toBeInTheDocument();
-    expect(screen.getByText('42.5%')).toBeInTheDocument();
-    expect(screen.getByText('321')).toBeInTheDocument();
   });
 });
 

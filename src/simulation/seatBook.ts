@@ -34,6 +34,7 @@ export class SeatBook {
   readonly sectionSeatTotal: Uint32Array;
   readonly sectionAvailable: Uint32Array;
   readonly sectionSold: Uint32Array;
+  readonly sectionReserved: Uint32Array;
   private readonly rowOf: Uint32Array;
   private readonly colOf: Uint16Array;
   private readonly sectionStart: Uint32Array;
@@ -57,6 +58,7 @@ export class SeatBook {
     this.sectionSeatTotal = new Uint32Array(this.sectionCount);
     this.sectionAvailable = new Uint32Array(this.sectionCount);
     this.sectionSold = new Uint32Array(this.sectionCount);
+    this.sectionReserved = new Uint32Array(this.sectionCount);
     this.rowOf = new Uint32Array(this.seatCount);
     this.colOf = new Uint16Array(this.seatCount);
     this.sectionStart = new Uint32Array(this.sectionCount + 1);
@@ -85,6 +87,7 @@ export class SeatBook {
             this.sectionSold[sectionIndex] = (this.sectionSold[sectionIndex] ?? 0) + 1;
           } else if (seat.status === 'reserved') {
             this.status[i] = RESERVED;
+            this.sectionReserved[sectionIndex] = (this.sectionReserved[sectionIndex] ?? 0) + 1;
           } else {
             this.status[i] = AVAILABLE;
             this.availableCount += 1;
