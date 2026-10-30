@@ -9,6 +9,7 @@ const buttonClass =
 // "about 1m 05s": waits are estimates, so they are rounded to the second and prefixed.
 function formatWait(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000));
+  if (total < 1) return 'under 1s';
   if (total < 60) return `${total}s`;
   return `${Math.floor(total / 60)}m ${String(total % 60).padStart(2, '0')}s`;
 }
@@ -21,7 +22,7 @@ function ReplayTimeline() {
   const live = replayAt === null;
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
       <label htmlFor="sale-timeline" className="text-xs font-semibold text-gray-700">
         Timeline
       </label>
@@ -36,7 +37,7 @@ function ReplayTimeline() {
         onChange={(e) => {
           scrubTo(Number(e.target.value));
         }}
-        className="min-w-0 flex-1 accent-blue-600"
+        className="min-w-[10rem] flex-1 accent-blue-600"
       />
       <span className="w-24 text-right text-xs tabular-nums text-gray-800">
         {formatClock(value)} / {formatClock(latest)}
@@ -126,7 +127,7 @@ function WaitingRoom() {
             type="button"
             disabled={!canJoin}
             onClick={joinQueue}
-            className={`${buttonClass} border-emerald-700 bg-emerald-600 text-white hover:bg-emerald-700`}
+            className={`${buttonClass} border-emerald-800 bg-emerald-700 text-white hover:bg-emerald-800`}
           >
             Join the waiting room
           </button>
@@ -145,7 +146,7 @@ export default function SaleTopBar() {
   return (
     <section
       aria-label="Waiting room and timeline"
-      className="absolute bottom-4 left-[24rem] right-24 z-40 space-y-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2 shadow-xl"
+      className="pointer-events-auto space-y-1.5 lg:absolute lg:bottom-4 lg:left-[24rem] lg:right-24 lg:z-40 rounded-xl border border-gray-200 bg-white px-4 py-2 shadow-xl"
     >
       <WaitingRoom />
       <ReplayTimeline />

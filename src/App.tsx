@@ -292,7 +292,8 @@ const App = () => {
         </button>
       )}
 
-      <div
+      <aside
+        aria-label="Booking"
         className={`
         fixed lg:relative inset-0 lg:inset-auto z-55 lg:z-auto
         transition-all duration-300 ease-in-out lg:overflow-hidden
@@ -316,7 +317,7 @@ const App = () => {
           />
           <BookingSummary venue={venue} />
         </div>
-      </div>
+      </aside>
 
       <IconButton
         icon="chevron-left"
@@ -380,8 +381,12 @@ const App = () => {
 
         <SeatStatusLegend />
         <SimulationPanel venue={venue} />
-        <SaleTopBar />
-        <SaleStatsPanel />
+        {/* Stacked above the zoom buttons on small screens; on large ones the wrapper dissolves and
+            each panel docks itself (stats bottom-left, waiting room and timeline along the bottom). */}
+        <div className="pointer-events-none absolute inset-x-4 bottom-4 z-40 flex flex-col-reverse gap-2 pr-14 lg:contents">
+          <SaleTopBar />
+          <SaleStatsPanel />
+        </div>
         <SaleSummaryCard venue={venue} />
         <SelectionToolbar venue={venue} />
       </main>

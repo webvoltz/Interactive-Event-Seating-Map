@@ -154,9 +154,9 @@ describe('SimulationPanel', () => {
 
     useSimulationStore.getState().setPhase('running');
     expect(await screen.findByRole('button', { name: 'Pause' })).toBeInTheDocument();
-    await user.click(screen.getByRole('radio', { name: '100×' }));
+    await user.click(screen.getByRole('button', { name: '100×' }));
     expect(useSimulationStore.getState().speed).toBe(100);
-    expect(screen.getByRole('radio', { name: '100×' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('button', { name: '100×' })).toHaveAttribute('aria-pressed', 'true');
 
     await user.click(screen.getByRole('button', { name: 'Pause' }));
     expect(await screen.findByRole('button', { name: 'Resume' })).toBeInTheDocument();

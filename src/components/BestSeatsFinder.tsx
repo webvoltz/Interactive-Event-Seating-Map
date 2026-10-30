@@ -123,7 +123,7 @@ export default function BestSeatsFinder({ venue }: BestSeatsFinderProps) {
           <Icon name="search" className="w-4 h-4" />
           Find best seats
         </button>
-        <p id="best-seats-hint" className="text-[11px] text-gray-400 text-center">
+        <p id="best-seats-hint" className="text-[11px] text-gray-600 text-center">
           Replaces your current selection.
         </p>
       </form>

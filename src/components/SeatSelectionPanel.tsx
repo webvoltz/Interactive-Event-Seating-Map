@@ -39,7 +39,7 @@ export default function SeatSelectionPanel({ venue }: SeatSelectionPanelProps) {
   return (
     <div>
       <CheckoutTimer />
-      <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 flex justify-between items-center">
+      <h2 className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-4 flex justify-between items-center">
         <span>Selected Seats ({selectedSeats.size}/8)</span>
         {selectedSeats.size > 0 && (
           <button

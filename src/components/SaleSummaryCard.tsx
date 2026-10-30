@@ -104,7 +104,7 @@ export default function SaleSummaryCard({ venue }: { venue: Venue }) {
           onClick={() => {
             startSale(venue);
           }}
-          className="cursor-pointer rounded-lg border border-emerald-700 bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+          className="cursor-pointer rounded-lg border border-emerald-800 bg-emerald-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
         >
           Run again
         </button>

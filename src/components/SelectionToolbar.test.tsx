@@ -3,6 +3,9 @@ import { fireEvent, render } from '@testing-library/react';
 import type { Venue } from '../interfaces/venue.interfaces';
 import { useVenueStore } from '../store/seatStore';
 import { TIERS } from '../utils/seatIndex';
+import { SimulationEngine } from '../simulation/engine';
+import { makeConfig, makeVenue } from '../simulation/fixtures';
+import { useSimulationStore } from '../simulation/simulationStore';
 import SelectionToolbar from './SelectionToolbar';
 
 const venue: Venue = {
@@ -95,5 +98,25 @@ describe('SelectionToolbar', () => {
     fireEvent.click(removeButton);
 
     expect(useVenueStore.getState().selectedSeats.size).toBe(0);
+  });
+});
+
+describe('SelectionToolbar next to a sale', () => {
+  it('sits higher while a sale is on screen so it clears the waiting-room bar', () => {
+    useVenueStore.setState({
+      selectedSeats: new Set(['SEAT-1']),
+      selectionExpiresAt: Date.now() + 60_000,
+    });
+    const { getByRole, rerender } = render(<SelectionToolbar venue={venue} />);
+    expect(getByRole('toolbar').className).toContain('bottom-20');
+
+    const stats = new SimulationEngine(
+      makeVenue([[{ seats: '..' }]]),
+      makeConfig({ buyers: 10 }),
+    ).getStats();
+    useSimulationStore.setState({ stats });
+    rerender(<SelectionToolbar venue={venue} />);
+    expect(getByRole('toolbar').className).toContain('bottom-36');
+    useSimulationStore.getState().clearRun();
   });
 });

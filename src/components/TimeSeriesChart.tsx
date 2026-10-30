@@ -109,7 +109,15 @@ export default function TimeSeriesChart({
       )}
 
       {asTable ? (
-        <div className="mt-2 max-h-40 overflow-auto rounded border border-gray-200">
+        <div
+          // A scrollable region must be focusable so keyboard users can scroll it (WCAG technique
+          // SCR39 / axe scrollable-region-focusable); it is named and has the region role.
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+          tabIndex={0}
+          role="region"
+          aria-label={`${title} as a table`}
+          className="mt-2 max-h-40 overflow-auto rounded border border-gray-200 focus-visible:outline-2 focus-visible:outline-blue-600"
+        >
           <table className="w-full text-left text-xs text-gray-800">
             <thead className="sticky top-0 bg-gray-50">
               <tr>

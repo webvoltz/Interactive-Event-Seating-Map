@@ -4,6 +4,7 @@ import type { Venue } from '../interfaces/venue.interfaces';
 import { buildSeatIndex } from '../utils/seatIndex';
 import { useCountdown } from '../hooks/useCountdown';
 import { formatCountdown } from '../utils/formatCountdown';
+import { useSimulationStore } from '../simulation/simulationStore';
 import Icon from './Icon';
 
 interface SelectionToolbarProps {
@@ -15,6 +16,8 @@ export default function SelectionToolbar({ venue }: SelectionToolbarProps) {
   const clearSelection = useVenueStore((s) => s.clearSelection);
   const selectionExpiresAt = useVenueStore((s) => s.selectionExpiresAt);
   const remaining = useCountdown(selectionExpiresAt);
+  // While a sale is on screen its waiting-room bar sits along the bottom, so this rides above it.
+  const saleOnScreen = useSimulationStore((s) => s.stats !== null);
 
   const seatIndex = useMemo(() => buildSeatIndex(venue), [venue]);
   const total = useMemo(() => {
@@ -31,7 +34,7 @@ export default function SelectionToolbar({ venue }: SelectionToolbarProps) {
     <div
       role="toolbar"
       aria-label="Seat selection"
-      className="fixed bottom-20 left-1/2 z-50 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-2xl bg-gray-900 px-4 py-2.5 text-white shadow-2xl"
+      className={`fixed ${saleOnScreen ? 'bottom-36' : 'bottom-20'} left-1/2 z-50 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-2xl bg-gray-900 px-4 py-2.5 text-white shadow-2xl`}
     >
       <span className="whitespace-nowrap text-sm font-semibold">
         {selectedSeats.size} seat{selectedSeats.size === 1 ? '' : 's'} selected

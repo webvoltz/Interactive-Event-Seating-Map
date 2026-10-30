@@ -43,12 +43,12 @@ export default function BookingHistoryPanel({ venue }: BookingHistoryPanelProps)
 
   return (
     <div>
-      <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">
+      <h2 className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-4">
         Booking History
       </h2>
 
       {bookings.length === 0 ? (
-        <div className="text-center py-10 text-gray-400 flex flex-col items-center gap-3">
+        <div className="text-center py-10 text-gray-600 flex flex-col items-center gap-3">
           <svg
             width="56"
             height="40"

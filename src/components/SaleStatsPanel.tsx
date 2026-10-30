@@ -26,7 +26,8 @@ function Tile({ label, value, note }: { label: string; value: string; note?: str
 }
 
 export default function SaleStatsPanel() {
-  const [open, setOpen] = useState(true);
+  // Open by default where there is room beside the map; collapsed on small screens.
+  const [open, setOpen] = useState(() => window.matchMedia('(min-width: 1024px)').matches);
   const stats = useSimulationStore(selectDisplayStats);
   const allSeries = useSimulationStore((s) => s.series);
   const replayAt = useSimulationStore((s) => s.replayAtMs);
@@ -49,7 +50,7 @@ export default function SaleStatsPanel() {
   return (
     <section
       aria-label="Live sale statistics"
-      className="absolute bottom-4 left-4 z-40 w-[22rem] max-w-[calc(100%-2rem)] max-h-[calc(100%-2rem)] overflow-y-auto rounded-xl border border-gray-200 bg-white p-4 shadow-xl"
+      className="pointer-events-auto max-h-[55vh] overflow-y-auto lg:absolute lg:bottom-4 lg:left-4 lg:z-40 lg:max-h-[calc(100%-2rem)] lg:w-[22rem] rounded-xl border border-gray-200 bg-white p-4 shadow-xl"
     >
       <div className="flex items-center justify-between">
         <h2 className="text-xs font-bold text-gray-600 uppercase tracking-wider">Sale stats</h2>

@@ -29,7 +29,7 @@ const PATTERN_LABELS: Record<ArrivalPattern, string> = {
 
 const buttonClass =
   'cursor-pointer rounded-lg px-3 py-1.5 text-sm font-semibold border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50';
-const primaryButton = `${buttonClass} bg-emerald-600 border-emerald-700 text-white hover:bg-emerald-700`;
+const primaryButton = `${buttonClass} bg-emerald-700 border-emerald-800 text-white hover:bg-emerald-800`;
 const plainButton = `${buttonClass} bg-white border-gray-300 text-gray-800 hover:bg-gray-50`;
 const fieldClass =
   'w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 disabled:bg-gray-100 disabled:text-gray-500';
@@ -186,13 +186,12 @@ export default function SimulationPanel({ venue }: { venue: Venue }) {
 
         <fieldset>
           <legend className="text-xs font-medium text-gray-600 mb-1">Speed</legend>
-          <div className="flex gap-1" role="radiogroup" aria-label="Simulation speed">
+          <div className="flex gap-1" role="group" aria-label="Simulation speed">
             {SPEEDS.map((s) => (
               <button
                 key={s}
                 type="button"
-                role="radio"
-                aria-checked={speed === s}
+                aria-pressed={speed === s}
                 className={`${buttonClass} flex-1 ${
                   speed === s
                     ? 'bg-gray-900 border-gray-900 text-white'
