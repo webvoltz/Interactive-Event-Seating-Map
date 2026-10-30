@@ -1,6 +1,8 @@
 import type { ISeat, Venue } from '../interfaces/venue.interfaces';
 import type { SeatStatus } from '../interfaces/venue.interfaces';
 import { DEFAULT_CONFIG, type SimConfig } from './config';
+import type { SimStats, ViewerState } from './engine';
+import type { SimBatch } from './simulationStore';
 
 interface RowSpec {
   // One character per seat: '.' available, 's' sold, 'r' reserved, 'h' pre-sale held.
@@ -46,4 +48,25 @@ export function makeVenue(sections: RowSpec[][]): Venue {
 
 export function makeConfig(partial: Partial<SimConfig> = {}): SimConfig {
   return { ...DEFAULT_CONFIG, ...partial };
+}
+
+export const IDLE_VIEWER: ViewerState = {
+  stage: 'none',
+  position: null,
+  etaMs: null,
+  seats: [],
+  seatsBought: 0,
+};
+
+// A batch as the worker would send it, with nothing happening unless a test says so.
+export function makeBatch(stats: SimStats, partial: Partial<SimBatch> = {}): SimBatch {
+  return {
+    seatChanges: new Uint32Array(),
+    changeTicks: new Uint32Array(),
+    soldOutSections: [],
+    samples: [],
+    viewer: IDLE_VIEWER,
+    stats,
+    ...partial,
+  };
 }

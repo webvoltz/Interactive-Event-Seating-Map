@@ -1,12 +1,16 @@
 import { create } from 'zustand';
 import { DEFAULT_CONFIG, normalizeConfig, parseConfigFromSearch, type SimConfig } from './config';
-import type { SimSample, SimStats } from './engine';
+import type { SimSample, SimStats, ViewerState } from './engine';
+import { TICK_MS } from './engine';
+import { EventLog } from './eventLog';
 import type { SimSpeed } from './protocol';
 
 export type SimPhase = 'idle' | 'running' | 'paused' | 'finished';
 
 export interface SimBatch {
   seatChanges: Uint32Array;
+  changeTicks: Uint32Array;
+  viewer: ViewerState;
   soldOutSections: number[];
   samples: SimSample[];
   stats: SimStats;
@@ -17,8 +21,15 @@ interface SimulationState {
   phase: SimPhase;
   speed: SimSpeed;
   heatmap: boolean;
-  // Mutated in place for speed; `seatVersion` is what tells React something changed.
+  // What the map shows. Mutated in place for speed; `seatVersion` is what tells React something changed.
+  // It is the live board, except while a past moment is being replayed.
   seatStatus: Uint8Array | null;
+  liveStatus: Uint8Array | null;
+  initialBoard: Uint8Array | null;
+  log: EventLog | null;
+  // null = following the live sale; otherwise the simulated time being viewed.
+  replayAtMs: number | null;
+  viewer: ViewerState;
   seatIndexById: ReadonlyMap<string, number> | null;
   sectionLabels: readonly string[];
   seatVersion: number;
@@ -38,7 +49,9 @@ interface SimulationState {
     seatIndexById: ReadonlyMap<string, number>,
     sectionLabels: readonly string[],
     stats: SimStats,
+    viewer?: ViewerState,
   ) => void;
+  setReplayAt: (ms: number | null) => void;
   applyBatches: (batches: readonly SimBatch[], now: number) => void;
   dismissSummary: () => void;
   clearRun: () => void;
@@ -46,6 +59,36 @@ interface SimulationState {
 
 // Announced once each as the sale passes them, so a screen reader hears progress, not a firehose.
 const SOLD_MILESTONES = [25, 50, 75, 90];
+
+export const NO_VIEWER: ViewerState = {
+  stage: 'none',
+  position: null,
+  etaMs: null,
+  seats: [],
+  seatsBought: 0,
+};
+
+// The latest sample taken at or before `ms`, i.e. the stats as they stood then.
+export function snapshotAtOrBefore(series: readonly SimSample[], ms: number): SimStats | null {
+  let low = 0;
+  let high = series.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if ((series[mid]?.t ?? 0) <= ms) low = mid + 1;
+    else high = mid;
+  }
+  return series[low - 1]?.snapshot ?? null;
+}
+
+// What the panels should show: the live numbers, or the snapshot for the replayed moment.
+export function selectDisplayStats(state: {
+  stats: SimStats | null;
+  series: readonly SimSample[];
+  replayAtMs: number | null;
+}): SimStats | null {
+  if (state.replayAtMs === null) return state.stats;
+  return snapshotAtOrBefore(state.series, state.replayAtMs) ?? state.stats;
+}
 
 const SEAT_STATUS_BITS = 2;
 const SEAT_STATUS_MASK = 0b11;
@@ -65,6 +108,11 @@ export const useSimulationStore = create<SimulationState>()((set, get) => ({
   speed: 10,
   heatmap: false,
   seatStatus: null,
+  liveStatus: null,
+  initialBoard: null,
+  log: null,
+  replayAtMs: null,
+  viewer: NO_VIEWER,
   seatIndexById: null,
   sectionLabels: [],
   seatVersion: 0,
@@ -87,9 +135,14 @@ export const useSimulationStore = create<SimulationState>()((set, get) => ({
     set({ phase });
   },
 
-  beginRun: (seatStatus, seatIndexById, sectionLabels, stats) => {
+  beginRun: (seatStatus, seatIndexById, sectionLabels, stats, viewer = NO_VIEWER) => {
     set((state) => ({
       seatStatus,
+      liveStatus: seatStatus,
+      initialBoard: seatStatus.slice(),
+      log: new EventLog(),
+      replayAtMs: null,
+      viewer,
       seatIndexById,
       sectionLabels,
       stats,
@@ -103,7 +156,14 @@ export const useSimulationStore = create<SimulationState>()((set, get) => ({
 
   // Several batches can land between frames; they are merged here so the UI renders once.
   applyBatches: (batches, now) => {
-    const { seatStatus, sectionLabels, soldOutAt: previousFlashes, stats: previous } = get();
+    const {
+      liveStatus: seatStatus,
+      log,
+      sectionLabels,
+      soldOutAt: previousFlashes,
+      stats: previous,
+      viewer: previousViewer,
+    } = get();
     const last = batches[batches.length - 1];
     if (!seatStatus || !last) return;
 
@@ -115,6 +175,7 @@ export const useSimulationStore = create<SimulationState>()((set, get) => ({
     ).pop();
     if (crossed !== undefined) announcement = `${crossed} percent of seats sold.`;
     for (const batch of batches) {
+      log?.append(batch.changeTicks, batch.seatChanges);
       for (const packed of batch.seatChanges) {
         seatStatus[packed >>> SEAT_STATUS_BITS] = packed & SEAT_STATUS_MASK;
       }
@@ -127,16 +188,44 @@ export const useSimulationStore = create<SimulationState>()((set, get) => ({
     if ((previous?.soldOutAtMs ?? null) === null && last.stats.soldOutAtMs !== null) {
       announcement = 'All seats are now held or sold.';
     }
+    if (previousViewer.stage !== last.viewer.stage) {
+      if (last.viewer.stage === 'admitted') {
+        announcement = 'It is your turn. Pick your seats before the checkout timer runs out.';
+      } else if (last.viewer.stage === 'turned-away') {
+        announcement = 'The sale ended before your turn.';
+      }
+    }
     const finished = last.stats.finished;
     if (finished) announcement = describeSaleEnd(last.stats);
 
     set((state) => ({
       stats: last.stats,
+      viewer: last.viewer,
       series: series.length > 0 ? [...state.series, ...series] : state.series,
       soldOutAt,
       seatVersion: state.seatVersion + 1,
       ...(announcement && { announcement }),
       ...(finished && { phase: 'finished' as const }),
+    }));
+  },
+
+  // Rebuilds the board at `ms` from the event log; null (or the present) goes back to the live board.
+  setReplayAt: (ms) => {
+    const { liveStatus, initialBoard, log, stats } = get();
+    if (!liveStatus || !initialBoard || !log || !stats) return;
+    if (ms === null || ms >= stats.simTimeMs) {
+      set((state) => ({
+        replayAtMs: null,
+        seatStatus: liveStatus,
+        seatVersion: state.seatVersion + 1,
+      }));
+      return;
+    }
+    const at = Math.max(0, ms);
+    set((state) => ({
+      replayAtMs: at,
+      seatStatus: log.boardAt(initialBoard, Math.floor(at / TICK_MS)),
+      seatVersion: state.seatVersion + 1,
     }));
   },
 
@@ -148,6 +237,11 @@ export const useSimulationStore = create<SimulationState>()((set, get) => ({
     set((state) => ({
       phase: 'idle',
       seatStatus: null,
+      liveStatus: null,
+      initialBoard: null,
+      log: null,
+      replayAtMs: null,
+      viewer: NO_VIEWER,
       seatIndexById: null,
       stats: null,
       series: [],

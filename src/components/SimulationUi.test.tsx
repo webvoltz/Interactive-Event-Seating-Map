@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { makeConfig, makeVenue } from '../simulation/fixtures';
+import { IDLE_VIEWER, makeBatch, makeConfig, makeVenue } from '../simulation/fixtures';
 import { SimulationEngine } from '../simulation/engine';
 import { AVAILABLE, HELD, RESERVED, SOLD } from '../simulation/seatBook';
 import { useSimulationStore } from '../simulation/simulationStore';
@@ -50,7 +50,32 @@ describe('Seats while a sale is simulated', () => {
     expect(label(ids[0])).toMatch(/sold$/);
     expect(label(ids[1])).toMatch(/held by another customer$/);
     expect(label(ids[2])).toMatch(/reserved$/);
+    // Not admitted yet: a leftover pick isn't a real hold, so the board shows the truth.
+    expect(label(ids[3])).toMatch(/available$/);
+  });
+
+  it('shows an admitted buyer�s own picks as selected, including seats the engine holds for them', () => {
+    const ids = firstSection.rows[0]?.seats.map((s) => s.id) ?? [];
+    useSimulationStore
+      .getState()
+      .beginRun(
+        Uint8Array.from([SOLD, HELD, RESERVED, HELD, 0, 0, 0, 0]),
+        new Map(ids.map((id, i) => [id, i])),
+        ['Section 1', 'Section 2'],
+        statsFor(),
+        { ...IDLE_VIEWER, stage: 'admitted' },
+      );
+    useVenueStore.setState({ selectedSeats: new Set([ids[3] ?? '']) });
+    render(
+      <svg>
+        <Seats rows={firstSection.rows} />
+      </svg>,
+    );
+    const label = (id: string | undefined) =>
+      document.getElementById(`seat-${id}`)?.getAttribute('aria-label') ?? '';
     expect(label(ids[3])).toMatch(/selected$/);
+    // Someone else's hold is still theirs.
+    expect(label(ids[1])).toMatch(/held by another customer$/);
   });
 
   it('re-renders a seat when the simulation changes its status', () => {
@@ -69,17 +94,9 @@ describe('Seats while a sale is simulated', () => {
     );
 
     const stats = statsFor();
-    useSimulationStore.getState().applyBatches(
-      [
-        {
-          seatChanges: Uint32Array.from([(0 << 2) | SOLD]),
-          soldOutSections: [],
-          samples: [],
-          stats,
-        },
-      ],
-      0,
-    );
+    useSimulationStore
+      .getState()
+      .applyBatches([makeBatch(stats, { seatChanges: Uint32Array.from([(0 << 2) | SOLD]) })], 0);
     // The store flips the seat; React re-renders on the version bump.
     return Promise.resolve().then(() => {
       expect(document.getElementById(`seat-${ids[0]}`)?.getAttribute('aria-label')).toMatch(

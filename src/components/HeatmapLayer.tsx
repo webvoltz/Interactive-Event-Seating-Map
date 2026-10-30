@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { Venue } from '../interfaces/venue.interfaces';
-import { useSimulationStore } from '../simulation/simulationStore';
+import { selectDisplayStats, useSimulationStore } from '../simulation/simulationStore';
 import { useVenueStore } from '../store/seatStore';
 import { paintHeatmap } from '../utils/paintHeatmap';
 import { getSectionGeometry } from '../utils/sectionGeometry';
@@ -17,7 +17,7 @@ interface HeatmapLayerProps {
 export default function HeatmapLayer({ venue, bounds }: HeatmapLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const heatmap = useSimulationStore((s) => s.heatmap);
-  const stats = useSimulationStore((s) => s.stats);
+  const stats = useSimulationStore(selectDisplayStats);
   const soldOutAt = useSimulationStore((s) => s.soldOutAt);
   const activeSectionId = useVenueStore((s) => s.activeSectionId);
 

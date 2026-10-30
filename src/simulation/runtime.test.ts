@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeConfig, makeVenue } from './fixtures';
+import { IDLE_VIEWER, makeBatch, makeConfig, makeVenue } from './fixtures';
 import { SimulationEngine } from './engine';
 import { pump, type PacerState } from './pacer';
 import type { WorkerEvent } from './protocol';
@@ -74,12 +74,12 @@ describe('simulation store', () => {
     return status;
   };
 
-  const batch = (changes: number[], soldOut: number[], stats: SimStats): SimBatch => ({
-    seatChanges: Uint32Array.from(changes),
-    soldOutSections: soldOut,
-    samples: [],
-    stats,
-  });
+  const batch = (changes: number[], soldOut: number[], stats: SimStats): SimBatch =>
+    makeBatch(stats, {
+      seatChanges: Uint32Array.from(changes),
+      changeTicks: new Uint32Array(changes.length),
+      soldOutSections: soldOut,
+    });
 
   it('normalises settings as they are changed', () => {
     useSimulationStore.getState().setConfig({ buyers: 1, pattern: 'waves' });
@@ -200,7 +200,7 @@ describe('simulation controller', () => {
     expect(window.location.search).toContain('seed=99');
 
     const stats = statsFor();
-    worker.emit({ type: 'ready', seatStatus: new Uint8Array(60), stats });
+    worker.emit({ type: 'ready', seatStatus: new Uint8Array(60), stats, viewer: IDLE_VIEWER });
     expect(worker.sent.map((m) => m.type)).toEqual(['init', 'speed', 'start']);
     expect(useSimulationStore.getState().phase).toBe('running');
     expect(useSimulationStore.getState().seatIndexById?.get('T-1')).toBe(0);
@@ -208,9 +208,12 @@ describe('simulation controller', () => {
     worker.emit({
       type: 'batch',
       seatChanges: Uint32Array.from([(2 << 2) | HELD]),
+      changeTicks: Uint32Array.from([3]),
       soldOutSections: [],
       samples: [],
       stats: statsFor({ simTimeMs: 500 }),
+      viewer: IDLE_VIEWER,
+      viewerRejected: [],
     });
     expect(useSimulationStore.getState().seatStatus?.[2]).toBe(HELD);
     expect(useSimulationStore.getState().stats?.simTimeMs).toBe(500);
@@ -279,5 +282,58 @@ describe('simulation worker', () => {
     send({ type: 'resume' });
     send({ type: 'reset', config: makeConfig({ buyers: 1000, seed: 5 }) });
     expect(posted.at(-1)?.type).toBe('ready');
+  });
+
+  it('relays the viewer�s commands, refusing seats it cannot give and restarting a stopped sale for a newcomer', async () => {
+    vi.useFakeTimers();
+    const posted: WorkerEvent[] = [];
+    Object.defineProperty(self, 'postMessage', {
+      value: (message: WorkerEvent) => {
+        posted.push(message);
+      },
+      configurable: true,
+      writable: true,
+    });
+    await import('./simulation.worker');
+    const send = (data: unknown) => {
+      self.onmessage?.call(self, new MessageEvent('message', { data }));
+    };
+    const lastBatch = () => {
+      const batch = posted.filter((m) => m.type === 'batch').at(-1);
+      if (batch?.type !== 'batch') throw new Error('no batch was posted');
+      return batch;
+    };
+
+    send({ type: 'init', venue, config: makeConfig({ buyers: 1000, admitPerSec: 100, seed: 3 }) });
+    send({ type: 'start' });
+    await vi.advanceTimersByTimeAsync(300);
+
+    send({ type: 'viewerJoin' });
+    expect(lastBatch().viewer.stage).toBe('queued');
+    send({ type: 'viewerHold', seats: [0, 1] });
+    // Still in the waiting room, so there is nothing they may hold.
+    expect(lastBatch().viewerRejected).toEqual([0, 1]);
+    send({ type: 'viewerRelease', seats: [0] });
+    send({ type: 'viewerBuy', seats: [0] });
+    expect(lastBatch().viewerRejected).toEqual([]);
+    send({ type: 'viewerLeave' });
+    expect(lastBatch().viewer.stage).toBe('left');
+
+    // Paused: a newcomer joins the queue but the sale does not start by itself.
+    send({ type: 'pause' });
+    const frozen = posted.length;
+    send({ type: 'viewerJoin' });
+    const afterJoin = posted.length;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(posted.length).toBe(afterJoin);
+    expect(afterJoin).toBeGreaterThan(frozen);
+
+    // Running but with its timer stopped (finished): joining wakes it again.
+    send({ type: 'resume' });
+    await vi.advanceTimersByTimeAsync(600_000);
+    send({ type: 'viewerLeave' });
+    send({ type: 'viewerJoin' });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(lastBatch().viewer.stage).not.toBe('none');
   });
 });

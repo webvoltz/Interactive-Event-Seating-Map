@@ -8,6 +8,8 @@ import SelectionToolbar from './components/SelectionToolbar';
 import SimulationPanel from './components/SimulationPanel';
 import SaleStatsPanel from './components/SaleStatsPanel';
 import SaleSummaryCard from './components/SaleSummaryCard';
+import SaleTopBar from './components/SaleTopBar';
+import ViewerRuntime from './components/ViewerRuntime';
 import Icon from './components/Icon';
 import IconButton from './components/IconButton';
 import { useCallback, useEffect, useState, useRef } from 'react';
@@ -378,6 +380,7 @@ const App = () => {
 
         <SeatStatusLegend />
         <SimulationPanel venue={venue} />
+        <SaleTopBar />
         <SaleStatsPanel />
         <SaleSummaryCard venue={venue} />
         <SelectionToolbar venue={venue} />
@@ -385,6 +388,7 @@ const App = () => {
 
       <Toast />
       <HoldRuntime venue={venue} />
+      <ViewerRuntime />
     </div>
   );
 };

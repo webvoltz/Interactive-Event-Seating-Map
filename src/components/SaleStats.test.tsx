@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SimulationEngine, type SimSample, type SimStats } from '../simulation/engine';
-import { makeConfig, makeVenue } from '../simulation/fixtures';
+import { makeBatch, makeConfig, makeVenue } from '../simulation/fixtures';
 import { useSimulationStore } from '../simulation/simulationStore';
 import SaleStatsPanel from './SaleStatsPanel';
 import SaleSummaryCard from './SaleSummaryCard';
@@ -17,19 +17,23 @@ function baseStats(overrides: Partial<SimStats> = {}): SimStats {
 }
 
 function sample(t: number, revenue: number, queue: number, holds: number): SimSample {
-  return { t, revenue, soldSeats: 0, heldSeats: 0, queue, activeHolds: holds, clashes: 0 };
+  return {
+    t,
+    revenue,
+    soldSeats: 0,
+    heldSeats: 0,
+    queue,
+    activeHolds: holds,
+    clashes: 0,
+    snapshot: baseStats(),
+  };
 }
 
 function load(stats: SimStats, series: SimSample[] = []) {
   useSimulationStore
     .getState()
     .beginRun(new Uint8Array(40), new Map(), ['Section 1', 'Section 2'], stats);
-  useSimulationStore
-    .getState()
-    .applyBatches(
-      [{ seatChanges: new Uint32Array(), soldOutSections: [], samples: series, stats }],
-      0,
-    );
+  useSimulationStore.getState().applyBatches([makeBatch(stats, { samples: series })], 0);
 }
 
 beforeEach(() => {
@@ -40,18 +44,9 @@ describe('simulation store history', () => {
   it('collects samples across batches, and drops them on reset', () => {
     const stats = baseStats();
     load(stats, [sample(0, 0, 0, 0)]);
-    useSimulationStore.getState().applyBatches(
-      [
-        {
-          seatChanges: new Uint32Array(),
-          soldOutSections: [],
-          samples: [sample(5000, 10, 1, 1)],
-          stats,
-        },
-        { seatChanges: new Uint32Array(), soldOutSections: [], samples: [], stats },
-      ],
-      1,
-    );
+    useSimulationStore
+      .getState()
+      .applyBatches([makeBatch(stats, { samples: [sample(5000, 10, 1, 1)] }), makeBatch(stats)], 1);
     expect(useSimulationStore.getState().series.map((s) => s.t)).toEqual([0, 5000]);
     useSimulationStore.getState().clearRun();
     expect(useSimulationStore.getState().series).toEqual([]);
@@ -60,17 +55,7 @@ describe('simulation store history', () => {
   it('announces each sold-out milestone once, at the highest one crossed', () => {
     load(baseStats({ soldPct: 10 }));
     const apply = (soldPct: number) => {
-      useSimulationStore.getState().applyBatches(
-        [
-          {
-            seatChanges: new Uint32Array(),
-            soldOutSections: [],
-            samples: [],
-            stats: baseStats({ soldPct }),
-          },
-        ],
-        0,
-      );
+      useSimulationStore.getState().applyBatches([makeBatch(baseStats({ soldPct }))], 0);
       return useSimulationStore.getState().announcement;
     };
     expect(apply(30)).toBe('25 percent of seats sold.');

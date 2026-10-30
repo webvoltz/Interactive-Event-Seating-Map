@@ -24,6 +24,7 @@ let venue: Venue | null = null;
 let engine: SimulationEngine | null = null;
 let speed: SimSpeed = 1;
 let timer: ReturnType<typeof setInterval> | null = null;
+let paused = false;
 let lastWall = 0;
 const pacer: PacerState = { owedSimMs: 0 };
 
@@ -38,15 +39,27 @@ function build(config: SimConfig): void {
   engine = new SimulationEngine(venue, config);
   pacer.owedSimMs = 0;
   const seatStatus = engine.statusSnapshot();
-  scope.postMessage({ type: 'ready', seatStatus, stats: engine.getStats() }, [seatStatus.buffer]);
+  scope.postMessage(
+    { type: 'ready', seatStatus, stats: engine.getStats(), viewer: engine.getViewerState() },
+    [seatStatus.buffer],
+  );
 }
 
-function emitBatch(): void {
+function emitBatch(viewerRejected: number[] = []): void {
   if (!engine) return;
-  const { seatChanges, soldOutSections, samples } = engine.drainDelta();
+  const { seatChanges, changeTicks, soldOutSections, samples } = engine.drainDelta();
   scope.postMessage(
-    { type: 'batch', seatChanges, soldOutSections, samples, stats: engine.getStats() },
-    [seatChanges.buffer],
+    {
+      type: 'batch',
+      seatChanges,
+      changeTicks,
+      soldOutSections,
+      samples,
+      stats: engine.getStats(),
+      viewer: engine.getViewerState(),
+      viewerRejected,
+    },
+    [seatChanges.buffer, changeTicks.buffer],
   );
 }
 
@@ -83,6 +96,7 @@ scope.onmessage = (event: MessageEvent) => {
   if (!isWorkerCommand(command)) return;
   switch (command.type) {
     case 'init':
+      paused = false;
       venue = command.venue;
       build(command.config);
       break;
@@ -91,13 +105,36 @@ scope.onmessage = (event: MessageEvent) => {
       break;
     case 'start':
     case 'resume':
+      paused = false;
       if (engine && !engine.finished) run();
       break;
     case 'pause':
+      paused = true;
       stop();
       break;
     case 'speed':
       speed = command.speed;
+      break;
+    case 'viewerJoin':
+      engine?.joinViewer();
+      // A finished sale stops its timer; a newcomer in the queue needs it running again.
+      if (engine && !paused && timer === null && !engine.finished) run();
+      emitBatch();
+      break;
+    case 'viewerLeave':
+      engine?.leaveViewer();
+      emitBatch();
+      break;
+    case 'viewerHold':
+      emitBatch(engine?.holdViewerSeats(command.seats).rejected);
+      break;
+    case 'viewerRelease':
+      engine?.releaseViewerSeats(command.seats);
+      emitBatch();
+      break;
+    case 'viewerBuy':
+      engine?.buyViewerSeats(command.seats);
+      emitBatch();
       break;
   }
 };

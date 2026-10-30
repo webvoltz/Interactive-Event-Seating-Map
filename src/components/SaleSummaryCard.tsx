@@ -23,9 +23,10 @@ export default function SaleSummaryCard({ venue }: { venue: Venue }) {
   const dismissed = useSimulationStore((s) => s.summaryDismissed);
   const stats = useSimulationStore((s) => s.stats);
   const labels = useSimulationStore((s) => s.sectionLabels);
+  const replaying = useSimulationStore((s) => s.replayAtMs !== null);
   const dismiss = useSimulationStore((s) => s.dismissSummary);
 
-  if (phase !== 'finished' || dismissed || !stats) return null;
+  if (phase !== 'finished' || dismissed || replaying || !stats) return null;
 
   const summary = buildSummary(stats);
   const name = (h: SectionHighlight) => labels[h.index] ?? `Section ${h.index + 1}`;

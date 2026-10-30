@@ -16,8 +16,9 @@ export default defineConfig({
       exclude: [
         'src/main.tsx',
         'src/interfaces/**',
-        'src/test/**',
         'src/simulation/fixtures.ts',
+        'src/simulation/realVenue.ts',
+        'src/test/**',
         '**/*.test.*',
       ],
       // Regression floor, ratcheted up (never down) as coverage improves - see engineering-notes.md.

@@ -4,6 +4,7 @@ import { useVenueStore } from '../store/seatStore';
 import { rowLetter } from '../utils/rowLetter';
 import { simStatusToEffective } from '../simulation/simStatus';
 import { useSimulationStore } from '../simulation/simulationStore';
+import { viewerGate } from '../simulation/viewerGate';
 import { getTier } from '../utils/seatIndex';
 import {
   SEAT_STATUS_STYLE,
@@ -67,6 +68,12 @@ const SeatNode = memo(function SeatNode({
     e: React.MouseEvent<SVGGElement> | React.KeyboardEvent<SVGGElement>,
   ) => {
     e.stopPropagation();
+    // During a sale, only an admitted buyer can pick seats.
+    const blocked = viewerGate();
+    if (blocked !== null) {
+      useVenueStore.getState().setFeedback({ type: 'error', message: blocked });
+      return;
+    }
     if (!isUnavailable) {
       useVenueStore.getState().toggleSeat(seat.id);
       e.currentTarget.focus();
@@ -186,6 +193,10 @@ const Seats = memo(function Seats({ rows }: SeatsProps) {
   const showLabels = useVenueStore((s) => s.zoom >= LABEL_ZOOM_THRESHOLD);
   const simStatus = useSimulationStore((s) => s.seatStatus);
   const simIndex = useSimulationStore((s) => s.seatIndexById);
+  // Only an admitted buyer on the live board has picks of their own on it.
+  const ownsPicks = useSimulationStore(
+    (s) => s.viewer.stage === 'admitted' && s.replayAtMs === null,
+  );
   // Re-renders on every merged batch; the status array itself is mutated in place.
   useSimulationStore((s) => s.seatVersion);
   const now = Date.now();
@@ -206,7 +217,12 @@ const Seats = memo(function Seats({ rows }: SeatsProps) {
             simCode === undefined
               ? resolveSeatStatus(seat, { soldSeats, holds, selectedSeats, now, simulationSeeded })
               : simStatusToEffective(simCode);
-          if (simCode !== undefined && status === 'available' && selectedSeats.has(seat.id)) {
+          if (
+            simCode !== undefined &&
+            ownsPicks &&
+            (status === 'available' || status === 'held') &&
+            selectedSeats.has(seat.id)
+          ) {
             status = 'selected';
           }
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSimulationStore } from '../simulation/simulationStore';
+import { selectDisplayStats, useSimulationStore } from '../simulation/simulationStore';
 import {
   formatClock,
   formatDuration,
@@ -27,12 +27,15 @@ function Tile({ label, value, note }: { label: string; value: string; note?: str
 
 export default function SaleStatsPanel() {
   const [open, setOpen] = useState(true);
-  const stats = useSimulationStore((s) => s.stats);
-  const series = useSimulationStore((s) => s.series);
+  const stats = useSimulationStore(selectDisplayStats);
+  const allSeries = useSimulationStore((s) => s.series);
+  const replayAt = useSimulationStore((s) => s.replayAtMs);
   const labels = useSimulationStore((s) => s.sectionLabels);
 
   if (!stats) return null;
 
+  // Charts stop at the moment being replayed.
+  const series = replayAt === null ? allSeries : allSeries.filter((p) => p.t <= replayAt);
   const times = series.map((p) => p.t);
   const revenueSeries: ChartSeries[] = [
     { id: 'revenue', label: 'Revenue', color: BLUE, values: series.map((p) => p.revenue) },

@@ -52,7 +52,7 @@ interface VenueState {
   setHolds: (holds: HoldMap) => void;
   seedSimulation: (holds: HoldMap) => void;
   applyRemoteSold: (seatIds: string[]) => void;
-  releaseLostSeats: (seatIds: string[]) => void;
+  releaseLostSeats: (seatIds: string[], message?: string) => void;
   runExpiry: (now: number) => void;
 }
 
@@ -264,7 +264,7 @@ export const useVenueStore = create<VenueState>()(
           };
         }),
 
-      releaseLostSeats: (seatIds) =>
+      releaseLostSeats: (seatIds, message) =>
         set((state) => {
           if (seatIds.length === 0) return {};
           const next = new Set(state.selectedSeats);
@@ -275,9 +275,10 @@ export const useVenueStore = create<VenueState>()(
             feedback: {
               type: 'error',
               message:
-                seatIds.length === 1
+                message ??
+                (seatIds.length === 1
                   ? 'A seat you selected was taken in another tab.'
-                  : 'Some seats you selected were taken in another tab.',
+                  : 'Some seats you selected were taken in another tab.'),
             },
           };
         }),

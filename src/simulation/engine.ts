@@ -91,12 +91,34 @@ export interface SimSample {
   activeHolds: number;
   // Contested seats since the previous sample.
   clashes: number;
+  // Everything the stats panel shows, as of this moment, so a replay can show it again.
+  snapshot: SimStats;
 }
 
 export const SAMPLE_MS = 5_000;
 
+export type ViewerStage = 'none' | 'queued' | 'admitted' | 'turned-away' | 'left';
+
+export interface ViewerState {
+  stage: ViewerStage;
+  // 1-based place in the waiting room while queued.
+  position: number | null;
+  // Simulated time until admission at the current rate; null when admission is paused (all seats held).
+  etaMs: number | null;
+  // Seat indices the viewer currently holds.
+  seats: number[];
+  seatsBought: number;
+}
+
+export interface ViewerHoldResult {
+  held: number[];
+  rejected: number[];
+}
+
 export interface SimDelta {
   samples: SimSample[];
+  // The simulated tick (TICK_MS each) at which each entry of `seatChanges` happened.
+  changeTicks: Uint32Array;
   // Packed (seatIndex << 2) | status, in the order the changes happened.
   seatChanges: Uint32Array;
   soldOutSections: number[];
@@ -140,6 +162,13 @@ export class SimulationEngine {
   private readonly queuedAt: Float64Array;
   private readonly holdExpiresAt: Float64Array;
 
+  // The viewer is one more buyer, past the crowd, driven by commands instead of the state machine.
+  private readonly viewerIndex: number;
+  private viewerStage: ViewerStage = 'none';
+  private viewerSeats: number[] = [];
+  private viewerBought = 0;
+  private viewerQueueSlot = -1;
+
   private nextArrival = 0;
   private readonly queue: Int32Array;
   private queueHead = 0;
@@ -148,6 +177,7 @@ export class SimulationEngine {
   private admitTokens = 0;
 
   private changes: number[] = [];
+  private changeTicks: number[] = [];
   private soldOutNow: number[] = [];
   private readonly sectionFlaggedSoldOut: Uint8Array;
   private readonly sectionSoldOutAt: Float64Array;
@@ -175,9 +205,11 @@ export class SimulationEngine {
     this.venue = venue;
     this.config = config;
     this.rng = createRng(config.seed);
+    this.viewerIndex = config.buyers;
     this.book = new SeatBook(venue);
 
-    const n = config.buyers;
+    // One extra slot, past the crowd, belongs to the viewer who may join as a buyer.
+    const n = config.buyers + 1;
     this.arriveAt = new Float64Array(n);
     this.groupSize = new Uint8Array(n);
     this.budgetIndex = new Uint8Array(n);
@@ -226,9 +258,11 @@ export class SimulationEngine {
     const delta: SimDelta = {
       samples: this.samples,
       seatChanges: Uint32Array.from(this.changes),
+      changeTicks: Uint32Array.from(this.changeTicks),
       soldOutSections: this.soldOutNow,
     };
     this.changes = [];
+    this.changeTicks = [];
     this.soldOutNow = [];
     this.samples = [];
     return delta;
@@ -362,7 +396,7 @@ export class SimulationEngine {
       else this.handleTimedEvent(event.kind, event.buyer, event.time);
     }
 
-    this.runSearches(searchers, slot);
+    this.runSearches(searchers);
     this.checkSaleOver();
     this.sampleIfDue();
   }
@@ -389,6 +423,7 @@ export class SimulationEngine {
       queue: this.queueLive,
       activeHolds,
       clashes: this.clashes - this.clashesAtLastSample,
+      snapshot: this.getStats(),
     });
     this.clashesAtLastSample = this.clashes;
   }
@@ -441,6 +476,10 @@ export class SimulationEngine {
       this.admitTokens -= 1;
       this.queueLive -= 1;
       this.stage[buyer] = STAGE.ADMITTED;
+      if (buyer === this.viewerIndex) {
+        this.viewerStage = 'admitted';
+        continue;
+      }
       this.served += 1;
       this.waitTotalMs += this.now - (this.queuedAt[buyer] ?? this.now);
       this.events.push(this.now + this.rng.between(400, 2_500), buyer, EV_SEARCH);
@@ -485,7 +524,7 @@ export class SimulationEngine {
       const seat = this.heldSeats[buyer * MAX_GROUP_SIZE + k] ?? 0;
       this.book.sell(seat);
       this.revenue += this.book.price[seat] ?? 0;
-      this.changes.push((seat << 2) | SOLD);
+      this.record(seat, SOLD);
     }
     this.heldCount[buyer] = 0;
     this.stage[buyer] = STAGE.PURCHASED;
@@ -496,7 +535,7 @@ export class SimulationEngine {
     for (let k = 0; k < count; k++) {
       const seat = this.heldSeats[buyer * MAX_GROUP_SIZE + k] ?? 0;
       this.book.release(seat);
-      this.changes.push((seat << 2) | AVAILABLE);
+      this.record(seat, AVAILABLE);
       const section = this.book.sectionOf[seat] ?? 0;
       this.sectionFlaggedSoldOut[section] = 0;
     }
@@ -510,7 +549,7 @@ export class SimulationEngine {
 
   // ---- searching ---------------------------------------------------------------------------
 
-  private runSearches(searchers: number[], slot: number): void {
+  private runSearches(searchers: number[]): void {
     if (searchers.length === 0) return;
     searchers.sort((a, b) => a - b);
 
@@ -528,13 +567,13 @@ export class SimulationEngine {
     }
 
     const touched: number[] = [];
-    for (const claim of claims) this.resolveClaim(claim, touched, slot);
+    for (const claim of claims) this.resolveClaim(claim, touched);
     for (const seat of touched) this.claimedBy[seat] = NO_OWNER;
 
     for (const buyer of failed) this.onSearchFailed(buyer);
   }
 
-  private resolveClaim(claim: Claim, touched: number[], slot: number): void {
+  private resolveClaim(claim: Claim, touched: number[]): void {
     const { buyer, seats } = claim;
     let contested = 0;
     for (const seat of seats) {
@@ -564,19 +603,7 @@ export class SimulationEngine {
       this.claimedBy[seat] = buyer;
       touched.push(seat);
       this.book.hold(seat, buyer);
-      this.changes.push((seat << 2) | HELD);
-      const section = this.book.sectionOf[seat] ?? 0;
-      const heatIdx = slot * this.book.sectionCount + section;
-      this.heatRing[heatIdx] = (this.heatRing[heatIdx] ?? 0) + 1;
-      this.heatSum[section] = (this.heatSum[section] ?? 0) + 1;
-      if (
-        (this.book.sectionAvailable[section] ?? 0) === 0 &&
-        !this.sectionFlaggedSoldOut[section]
-      ) {
-        this.sectionFlaggedSoldOut[section] = 1;
-        if (Number.isNaN(this.sectionSoldOutAt[section])) this.sectionSoldOutAt[section] = this.now;
-        this.soldOutNow.push(section);
-      }
+      this.afterSeatHeld(seat);
       this.heldSeats[buyer * MAX_GROUP_SIZE + (this.heldCount[buyer] ?? 0)] = seat;
       this.heldCount[buyer] = (this.heldCount[buyer] ?? 0) + 1;
     }
@@ -587,7 +614,6 @@ export class SimulationEngine {
       this.events.push(this.holdExpiresAt[buyer] ?? 0, buyer, EV_EXPIRE);
     }
     this.need[buyer] = (this.need[buyer] ?? 0) - seats.length;
-    if (this.book.availableCount === 0 && this.soldOutAtMs === null) this.soldOutAtMs = this.now;
 
     if ((this.need[buyer] ?? 0) > 0) {
       this.events.push(this.now + this.rng.between(400, 2_000), buyer, EV_SEARCH);
@@ -599,6 +625,26 @@ export class SimulationEngine {
       const remaining = (this.holdExpiresAt[buyer] ?? this.now) - this.now;
       this.events.push(this.now + remaining * (0.05 + 0.4 * this.rng.next()), buyer, EV_PAY);
     }
+  }
+
+  // Bookkeeping every newly held seat needs, whoever holds it.
+  private afterSeatHeld(seat: number): void {
+    this.record(seat, HELD);
+    const section = this.book.sectionOf[seat] ?? 0;
+    const heatIdx = (this.tickNo % HEAT_WINDOW_TICKS) * this.book.sectionCount + section;
+    this.heatRing[heatIdx] = (this.heatRing[heatIdx] ?? 0) + 1;
+    this.heatSum[section] = (this.heatSum[section] ?? 0) + 1;
+    if ((this.book.sectionAvailable[section] ?? 0) === 0 && !this.sectionFlaggedSoldOut[section]) {
+      this.sectionFlaggedSoldOut[section] = 1;
+      if (Number.isNaN(this.sectionSoldOutAt[section])) this.sectionSoldOutAt[section] = this.now;
+      this.soldOutNow.push(section);
+    }
+    if (this.book.availableCount === 0 && this.soldOutAtMs === null) this.soldOutAtMs = this.now;
+  }
+
+  private record(seat: number, status: number): void {
+    this.changes.push((seat << 2) | status);
+    this.changeTicks.push(this.tickNo);
   }
 
   private onSearchFailed(buyer: number): void {
@@ -681,7 +727,98 @@ export class SimulationEngine {
       this.queueHead += 1;
       if (this.stage[buyer] !== STAGE.QUEUED) continue;
       this.queueLive -= 1;
-      this.turnAway(buyer);
+      if (buyer === this.viewerIndex) {
+        this.stage[buyer] = STAGE.ABANDONED;
+        this.viewerStage = 'turned-away';
+      } else {
+        this.turnAway(buyer);
+      }
     }
+  }
+
+  // ---- the viewer as a buyer ----------------------------------------------------------------
+
+  // Joins the back of the waiting room. Ignored if already in, or told the sale is over.
+  joinViewer(): void {
+    if (this.viewerStage === 'queued' || this.viewerStage === 'admitted') return;
+    if (this.saleOverAtMs !== null) {
+      this.viewerStage = 'turned-away';
+      return;
+    }
+    const viewer = this.viewerIndex;
+    this.viewerStage = 'queued';
+    this.stage[viewer] = STAGE.QUEUED;
+    this.queuedAt[viewer] = this.now;
+    this.viewerQueueSlot = this.queueTail;
+    this.queue[this.queueTail] = viewer;
+    this.queueTail += 1;
+    this.queueLive += 1;
+  }
+
+  // Only an admitted viewer can hold seats. Seats someone else already has come back as rejected.
+  holdViewerSeats(seats: readonly number[]): ViewerHoldResult {
+    const result: ViewerHoldResult = { held: [], rejected: [] };
+    for (const seat of seats) {
+      const room = this.viewerSeats.length < MAX_GROUP_SIZE;
+      if (this.viewerStage === 'admitted' && room && this.book.hold(seat, this.viewerIndex)) {
+        this.viewerSeats.push(seat);
+        this.afterSeatHeld(seat);
+        result.held.push(seat);
+      } else {
+        result.rejected.push(seat);
+      }
+    }
+    return result;
+  }
+
+  releaseViewerSeats(seats: readonly number[]): void {
+    for (const seat of seats) {
+      const at = this.viewerSeats.indexOf(seat);
+      if (at < 0) continue;
+      this.viewerSeats.splice(at, 1);
+      this.book.release(seat);
+      this.record(seat, AVAILABLE);
+      this.sectionFlaggedSoldOut[this.book.sectionOf[seat] ?? 0] = 0;
+    }
+  }
+
+  buyViewerSeats(seats: readonly number[]): void {
+    for (const seat of seats) {
+      const at = this.viewerSeats.indexOf(seat);
+      if (at < 0) continue;
+      this.viewerSeats.splice(at, 1);
+      this.book.sell(seat);
+      this.revenue += this.book.price[seat] ?? 0;
+      this.record(seat, SOLD);
+      this.viewerBought += 1;
+    }
+  }
+
+  leaveViewer(): void {
+    this.releaseViewerSeats([...this.viewerSeats]);
+    if (this.stage[this.viewerIndex] === STAGE.QUEUED) {
+      this.stage[this.viewerIndex] = STAGE.ABANDONED;
+      this.queueLive -= 1;
+    }
+    this.viewerStage = 'left';
+  }
+
+  getViewerState(): ViewerState {
+    let position: number | null = null;
+    let etaMs: number | null = null;
+    if (this.viewerStage === 'queued') {
+      position = 0;
+      for (let i = this.queueHead; i <= this.viewerQueueSlot; i++) {
+        if (this.stage[this.queue[i] ?? 0] === STAGE.QUEUED) position += 1;
+      }
+      if (this.book.availableCount > 0) etaMs = (position / this.config.admitPerSec) * 1000;
+    }
+    return {
+      stage: this.viewerStage,
+      position,
+      etaMs,
+      seats: [...this.viewerSeats],
+      seatsBought: this.viewerBought,
+    };
   }
 }
