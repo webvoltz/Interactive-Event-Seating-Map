@@ -54,7 +54,7 @@ describe('Seats while a sale is simulated', () => {
     expect(label(ids[3])).toMatch(/available$/);
   });
 
-  it('shows an admitted buyer�s own picks as selected, including seats the engine holds for them', () => {
+  it('shows an admitted buyer’s own picks as selected, including seats the engine holds for them', () => {
     const ids = firstSection.rows[0]?.seats.map((s) => s.id) ?? [];
     useSimulationStore
       .getState()

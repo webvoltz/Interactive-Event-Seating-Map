@@ -140,6 +140,34 @@ export default function SaleStatsPanel() {
           />
         </dl>
 
+        {stats.bots.identities > 0 && (
+          <div aria-label="Scalper bots" role="group">
+            <h3 className="text-xs font-semibold text-gray-800">
+              Scalper bots{' '}
+              <span className="font-normal text-gray-600">
+                (detection {stats.bots.detection ? 'on' : 'off'})
+              </span>
+            </h3>
+            <dl className="mt-1 grid grid-cols-2 gap-2">
+              <Tile
+                label="Bots blocked"
+                value={`${stats.bots.blocked.toLocaleString()} of ${stats.bots.identities.toLocaleString()}`}
+                note={`${stats.bots.humansBlocked.toLocaleString()} real buyers blocked`}
+              />
+              <Tile
+                label="Seats bought by bots"
+                value={stats.bots.seatsSold.toLocaleString()}
+                note={`${formatMoney(stats.bots.revenue)} revenue`}
+              />
+              <Tile
+                label="Best seats to real fans"
+                value={`${stats.bots.fanShare.toFixed(0)}%`}
+                note={`${stats.bots.bestSeats.soldToBots.toLocaleString()} of ${stats.bots.bestSeats.total.toLocaleString()} went to bots`}
+              />
+            </dl>
+          </div>
+        )}
+
         <TimeSeriesChart
           title="Revenue over time"
           times={times}

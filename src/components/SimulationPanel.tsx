@@ -4,6 +4,7 @@ import {
   ADMIT_MAX,
   ADMIT_MIN,
   ARRIVAL_PATTERNS,
+  BOTS_MAX,
   BUYERS_MAX,
   BUYERS_MIN,
   HOLD_MAX_MS,
@@ -15,6 +16,7 @@ import {
   pauseSale,
   resetSale,
   resumeSale,
+  runDetectionComparison,
   setSaleSpeed,
   startSale,
   syncUrl,
@@ -140,6 +142,7 @@ export default function SimulationPanel({ venue }: { venue: Venue }) {
   const announcement = useSimulationStore((s) => s.announcement);
   const setConfig = useSimulationStore((s) => s.setConfig);
   const setHeatmap = useSimulationStore((s) => s.setHeatmap);
+  const comparison = useSimulationStore((s) => s.comparison);
 
   const idle = phase === 'idle' || phase === 'finished';
   const update = (partial: Parameters<typeof setConfig>[0]) => {
@@ -288,7 +291,49 @@ export default function SimulationPanel({ venue }: { venue: Venue }) {
               update({ seed });
             }}
           />
+          <NumberField
+            id="sim-bots"
+            label={`Scalper bots (0–${BOTS_MAX.toLocaleString()})`}
+            value={config.bots}
+            min={0}
+            max={BOTS_MAX}
+            step={100}
+            disabled={!idle}
+            onCommit={(bots) => {
+              update({ bots });
+            }}
+          />
+          <label className="flex items-center gap-2 text-sm text-gray-800">
+            <input
+              type="checkbox"
+              checked={config.detection}
+              disabled={!idle}
+              onChange={(e) => {
+                update({ detection: e.target.checked });
+              }}
+            />
+            Block bots (detection rules)
+          </label>
         </fieldset>
+
+        <div className="space-y-1 border-t border-gray-200 pt-3">
+          <button
+            type="button"
+            disabled={config.bots === 0 || comparison.status === 'running'}
+            aria-describedby="compare-hint"
+            className={`${plainButton} w-full`}
+            onClick={() => {
+              runDetectionComparison(venue);
+            }}
+          >
+            {comparison.status === 'running' ? 'Comparing…' : 'Compare detection off vs on'}
+          </button>
+          <p id="compare-hint" className="text-xs text-gray-600">
+            {config.bots === 0
+              ? 'Add scalper bots above to compare.'
+              : 'Plays this sale twice (same crowd, same bots) and shows who got the best seats.'}
+          </p>
+        </div>
       </div>
     </section>
   );

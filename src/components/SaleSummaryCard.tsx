@@ -79,6 +79,15 @@ export default function SaleSummaryCard({ venue }: { venue: Venue }) {
           ` ${summary.unsoldSeats.toLocaleString()} unsold: they went back on sale when late holds lapsed, after the last buyers had left the waiting room.`}
       </p>
 
+      {stats.bots.identities > 0 && (
+        <p className="mt-3 text-sm text-gray-800">
+          <strong>Scalper bots:</strong> {stats.bots.identities.toLocaleString()} bots,{' '}
+          {stats.bots.blocked.toLocaleString()} blocked (detection{' '}
+          {stats.bots.detection ? 'on' : 'off'}), {stats.bots.seatsSold.toLocaleString()} seats
+          bought by bots. Real fans got {stats.bots.fanShare.toFixed(0)}% of the best seats.
+        </p>
+      )}
+
       {(summary.fastest ?? summary.slowest) && (
         <ul className="mt-4 space-y-1 border-t border-gray-200 pt-3 text-sm text-gray-800">
           {summary.fastest && (

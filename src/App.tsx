@@ -7,6 +7,7 @@ import SeatStatusLegend from './components/SeatStatusLegend';
 import SelectionToolbar from './components/SelectionToolbar';
 import SimulationPanel from './components/SimulationPanel';
 import SaleStatsPanel from './components/SaleStatsPanel';
+import BotComparisonCard from './components/BotComparisonCard';
 import SaleSummaryCard from './components/SaleSummaryCard';
 import SaleTopBar from './components/SaleTopBar';
 import ViewerRuntime from './components/ViewerRuntime';
@@ -388,6 +389,7 @@ const App = () => {
           <SaleStatsPanel />
         </div>
         <SaleSummaryCard venue={venue} />
+        <BotComparisonCard />
         <SelectionToolbar venue={venue} />
       </main>
 
