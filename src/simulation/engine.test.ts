@@ -65,6 +65,19 @@ function expectConsistent(engine: SimulationEngine, previousStatus: Uint8Array |
       problems.push(`section ${s} available drifted`);
     if (book.sectionSold[s] !== sectionSold[s]) problems.push(`section ${s} sold drifted`);
   }
+  // The per-row free counts the search relies on must match a recount of the board.
+  const rowFree = new Array<number>(book.rowFree.length).fill(0);
+  let row = -1;
+  let previousSeat = -1;
+  book.status.forEach((status, seat) => {
+    // Rows are contiguous runs of seats; a new row starts where the free-count slot advances.
+    if (previousSeat < 0 || book.rowStartsAt(seat)) row += 1;
+    previousSeat = seat;
+    if (status === AVAILABLE) rowFree[row] = (rowFree[row] ?? 0) + 1;
+  });
+  rowFree.forEach((free, r) => {
+    if (book.rowFree[r] !== free) problems.push(`row ${r} free count drifted`);
+  });
   expect(problems).toEqual([]);
 }
 

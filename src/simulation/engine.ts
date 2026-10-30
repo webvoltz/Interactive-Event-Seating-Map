@@ -696,15 +696,20 @@ export class SimulationEngine {
     );
     const budget = attempt >= 4 ? Infinity : (BUDGET_CAPS[budgetStep] ?? Infinity);
 
+    // Only rows with enough free seats can hold the party, so searching just those gives the same
+    // answer as searching everything, in a fraction of the time once the venue fills up.
     const sections: Venue['sections'] = [];
+    const consider = (section: Venue['sections'][number] | undefined, s: number) => {
+      if (!section || this.book.longestFreeRun(s, budget) < size) return;
+      const first = this.book.sectionRowStart[s] ?? 0;
+      const rows = section.rows.filter((_, r) => (this.book.rowFree[first + r] ?? 0) >= size);
+      if (rows.length > 0) sections.push({ ...section, rows });
+    };
     if (attempt === 0) {
       const preferred = this.prefSection[buyer] ?? 0;
-      const section = this.venue.sections[preferred];
-      if (section && this.book.longestFreeRun(preferred, budget) >= size) sections.push(section);
+      consider(this.venue.sections[preferred], preferred);
     } else {
-      this.venue.sections.forEach((section, s) => {
-        if (this.book.longestFreeRun(s, budget) >= size) sections.push(section);
-      });
+      this.venue.sections.forEach(consider);
     }
     if (sections.length === 0) return null;
 

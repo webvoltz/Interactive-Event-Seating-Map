@@ -38,6 +38,9 @@ export class SeatBook {
   private readonly rowOf: Uint32Array;
   private readonly colOf: Uint16Array;
   private readonly sectionStart: Uint32Array;
+  // Seats still on sale in each row (rows numbered in venue order), and where each section's rows begin.
+  readonly rowFree: Uint16Array;
+  readonly sectionRowStart: Uint32Array;
   private readonly priceLevels: number[];
   private readonly sectionVersion: Uint32Array;
   private readonly runCache: Int32Array;
@@ -60,6 +63,8 @@ export class SeatBook {
     this.sectionSold = new Uint32Array(this.sectionCount);
     this.sectionReserved = new Uint32Array(this.sectionCount);
     this.rowOf = new Uint32Array(this.seatCount);
+    this.rowFree = new Uint16Array(venue.sections.reduce((n, sec) => n + sec.rows.length, 0));
+    this.sectionRowStart = new Uint32Array(this.sectionCount);
     this.colOf = new Uint16Array(this.seatCount);
     this.sectionStart = new Uint32Array(this.sectionCount + 1);
     this.sectionVersion = new Uint32Array(this.sectionCount);
@@ -69,6 +74,7 @@ export class SeatBook {
     let rowCounter = 0;
     venue.sections.forEach((section, sectionIndex) => {
       this.sectionStart[sectionIndex] = i;
+      this.sectionRowStart[sectionIndex] = rowCounter;
       for (const row of section.rows) {
         rowCounter += 1;
         for (const seat of row.seats) {
@@ -91,6 +97,7 @@ export class SeatBook {
           } else {
             this.status[i] = AVAILABLE;
             this.availableCount += 1;
+            this.rowFree[rowCounter - 1] = (this.rowFree[rowCounter - 1] ?? 0) + 1;
             this.sectionAvailable[sectionIndex] = (this.sectionAvailable[sectionIndex] ?? 0) + 1;
           }
           i += 1;
@@ -101,6 +108,11 @@ export class SeatBook {
     this.priceLevels = [...prices].sort((a, b) => a - b);
     this.runCache = new Int32Array(this.sectionCount * (this.priceLevels.length + 1));
     this.runCacheVersion = new Int32Array(this.runCache.length).fill(-1);
+  }
+
+  // True when `seat` is the first seat of its row.
+  rowStartsAt(seat: number): boolean {
+    return seat === 0 || this.rowOf[seat] !== this.rowOf[seat - 1];
   }
 
   // Longest run of side-by-side available seats in a section priced at or under `maxPrice`.
@@ -138,6 +150,7 @@ export class SeatBook {
     this.availableCount -= 1;
     this.heldCount += 1;
     this.bump(this.sectionAvailable, seat, -1);
+    this.bumpRow(seat, -1);
     this.touch(seat);
     return true;
   }
@@ -149,6 +162,7 @@ export class SeatBook {
     this.availableCount += 1;
     this.heldCount -= 1;
     this.bump(this.sectionAvailable, seat, 1);
+    this.bumpRow(seat, 1);
     this.touch(seat);
   }
 
@@ -159,6 +173,11 @@ export class SeatBook {
     this.heldCount -= 1;
     this.soldCount += 1;
     this.bump(this.sectionSold, seat, 1);
+  }
+
+  private bumpRow(seat: number, delta: number): void {
+    const row = (this.rowOf[seat] ?? 1) - 1;
+    this.rowFree[row] = (this.rowFree[row] ?? 0) + delta;
   }
 
   private touch(seat: number): void {
