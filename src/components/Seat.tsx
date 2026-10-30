@@ -1,7 +1,9 @@
 import { memo, useMemo } from 'react';
-import type { ISeat, Row } from '../interfaces/venue.interfaces';
+import type { EffectiveSeatStatus, ISeat, Row } from '../interfaces/venue.interfaces';
 import { useVenueStore } from '../store/seatStore';
 import { rowLetter } from '../utils/rowLetter';
+import { simStatusToEffective } from '../simulation/simStatus';
+import { useSimulationStore } from '../simulation/simulationStore';
 import { getTier } from '../utils/seatIndex';
 import {
   SEAT_STATUS_STYLE,
@@ -24,48 +26,61 @@ const SEAT_SIZE = 3;
 const SEAT_RADIUS = 0.35;
 const LABEL_ZOOM_THRESHOLD = 2;
 
-const Seats = memo(function Seats({ rows }: SeatsProps) {
-  const selectedSeats = useVenueStore((s) => s.selectedSeats);
-  const soldSeats = useVenueStore((s) => s.soldSeats);
-  const holds = useVenueStore((s) => s.holds);
-  const simulationSeeded = useVenueStore((s) => s.simulationSeeded);
-  const bookings = useVenueStore((s) => s.bookings);
-  const viewingBookingId = useVenueStore((s) => s.viewingBookingId);
-  const toggleSeat = useVenueStore((s) => s.toggleSeat);
-  const setFeedback = useVenueStore((s) => s.setFeedback);
-  const showLabels = useVenueStore((s) => s.zoom >= LABEL_ZOOM_THRESHOLD);
-  const now = Date.now();
+interface SeatNodeProps {
+  seat: ISeat;
+  rows: Row[];
+  rowIndex: number;
+  seatIndex: number;
+  status: EffectiveSeatStatus;
+  isHighlighted: boolean;
+  showLabels: boolean;
+}
 
-  const highlightedSeatIds = useMemo(() => {
-    if (!viewingBookingId) return null;
-    const booking = bookings.find((b) => b.id === viewingBookingId);
-    return booking ? new Set(booking.seatIds) : null;
-  }, [bookings, viewingBookingId]);
+// One seat. Memoized so a live sale only re-renders the handful of seats whose status changed,
+// not every seat in the open section on each batch.
+const SeatNode = memo(function SeatNode({
+  seat,
+  rows,
+  rowIndex,
+  seatIndex,
+  status,
+  isHighlighted,
+  showLabels,
+}: SeatNodeProps) {
+  const isSelected = status === 'selected';
+  const isUnavailable = !isSeatSelectable(status);
+
+  const style = SEAT_STATUS_STYLE[status];
+  const { fill, textColor } = style;
+  let { stroke, strokeWidth } = style;
+  if (status === 'available') {
+    stroke = TIER_STROKE[seat.priceTier] ?? stroke;
+  }
+  if (isHighlighted) {
+    stroke = 'var(--color-booking-highlight)';
+    strokeWidth = 0.5;
+  }
+
+  const label = `Row ${rowLetter(rowIndex)} Seat ${seat.col}, Price $${getTier(seat.priceTier).price}, ${describeSeatStatus(status)}`;
 
   const handleInteraction = (
     e: React.MouseEvent<SVGGElement> | React.KeyboardEvent<SVGGElement>,
-    seat: ISeat,
-    isUnavailable: boolean,
   ) => {
     e.stopPropagation();
     if (!isUnavailable) {
-      toggleSeat(seat.id);
+      useVenueStore.getState().toggleSeat(seat.id);
       e.currentTarget.focus();
     } else {
-      setFeedback({ type: 'error', message: 'That seat is no longer available.' });
+      useVenueStore
+        .getState()
+        .setFeedback({ type: 'error', message: 'That seat is no longer available.' });
     }
   };
 
-  const handleKeyDown = (
-    e: React.KeyboardEvent<SVGGElement>,
-    seat: ISeat,
-    rowIndex: number,
-    seatIndex: number,
-    isUnavailable: boolean,
-  ) => {
+  const handleKeyDown = (e: React.KeyboardEvent<SVGGElement>) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      handleInteraction(e, seat, isUnavailable);
+      handleInteraction(e);
       return;
     }
 
@@ -110,89 +125,102 @@ const Seats = memo(function Seats({ rows }: SeatsProps) {
   };
 
   return (
+    <g
+      id={`seat-${seat.id}`}
+      onClick={handleInteraction}
+      onKeyDown={handleKeyDown}
+      role="checkbox"
+      aria-checked={isSelected}
+      aria-label={label}
+      aria-disabled={isUnavailable}
+      tabIndex={isUnavailable ? -1 : 0}
+      className="focus:outline-none group/seat"
+    >
+      <rect
+        x={seat.x - SEAT_SIZE / 2}
+        y={seat.y - SEAT_SIZE / 2}
+        width={SEAT_SIZE}
+        height={SEAT_SIZE}
+        rx={SEAT_RADIUS}
+        fill={fill}
+        stroke={stroke}
+        strokeWidth={strokeWidth}
+        className={[
+          !isUnavailable && 'group-focus/seat:stroke-blue-600 group-focus/seat:stroke-[0.5px]',
+          isSelected && 'seat-select-pop',
+          isHighlighted && 'seat-highlight-pulse',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        style={{
+          cursor: isUnavailable ? 'not-allowed' : 'pointer',
+          transition: 'all 0.2s ease',
+          outline: 'none',
+        }}
+      />
+      {showLabels && (
+        <text
+          x={seat.x}
+          y={seat.y}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fill={textColor}
+          fontSize={SEAT_SIZE * 0.5}
+          fontWeight={600}
+          style={{ pointerEvents: 'none', userSelect: 'none' }}
+        >
+          {seat.col}
+        </text>
+      )}
+    </g>
+  );
+});
+
+const Seats = memo(function Seats({ rows }: SeatsProps) {
+  const selectedSeats = useVenueStore((s) => s.selectedSeats);
+  const soldSeats = useVenueStore((s) => s.soldSeats);
+  const holds = useVenueStore((s) => s.holds);
+  const simulationSeeded = useVenueStore((s) => s.simulationSeeded);
+  const bookings = useVenueStore((s) => s.bookings);
+  const viewingBookingId = useVenueStore((s) => s.viewingBookingId);
+  const showLabels = useVenueStore((s) => s.zoom >= LABEL_ZOOM_THRESHOLD);
+  const simStatus = useSimulationStore((s) => s.seatStatus);
+  const simIndex = useSimulationStore((s) => s.seatIndexById);
+  // Re-renders on every merged batch; the status array itself is mutated in place.
+  useSimulationStore((s) => s.seatVersion);
+  const now = Date.now();
+
+  const highlightedSeatIds = useMemo(() => {
+    if (!viewingBookingId) return null;
+    const booking = bookings.find((b) => b.id === viewingBookingId);
+    return booking ? new Set(booking.seatIds) : null;
+  }, [bookings, viewingBookingId]);
+
+  return (
     <>
       {rows.map((row, rowIndex) =>
         row.seats.map((seat, seatIndex) => {
-          const status = resolveSeatStatus(seat, {
-            soldSeats,
-            holds,
-            selectedSeats,
-            now,
-            simulationSeeded,
-          });
-          const isSelected = status === 'selected';
-          const isUnavailable = !isSeatSelectable(status);
-
-          const style = SEAT_STATUS_STYLE[status];
-          const { fill, textColor } = style;
-          let { stroke, strokeWidth } = style;
-          if (status === 'available') {
-            stroke = TIER_STROKE[seat.priceTier] ?? stroke;
+          const simCode =
+            simStatus && simIndex ? simStatus[simIndex.get(seat.id) ?? -1] : undefined;
+          let status =
+            simCode === undefined
+              ? resolveSeatStatus(seat, { soldSeats, holds, selectedSeats, now, simulationSeeded })
+              : simStatusToEffective(simCode);
+          if (simCode !== undefined && status === 'available' && selectedSeats.has(seat.id)) {
+            status = 'selected';
           }
-
-          const isHighlighted = highlightedSeatIds?.has(seat.id) ?? false;
-          if (isHighlighted) {
-            stroke = 'var(--color-booking-highlight)';
-            strokeWidth = 0.5;
-          }
-
-          const label = `Row ${rowLetter(rowIndex)} Seat ${seat.col}, Price $${getTier(seat.priceTier).price}, ${describeSeatStatus(status)}`;
 
           return (
-            <g
+            <SeatNode
               key={seat.id}
-              id={`seat-${seat.id}`}
-              onClick={(e) => {
-                handleInteraction(e, seat, isUnavailable);
-              }}
-              onKeyDown={(e) => {
-                handleKeyDown(e, seat, rowIndex, seatIndex, isUnavailable);
-              }}
-              role="checkbox"
-              aria-checked={isSelected}
-              aria-label={label}
-              aria-disabled={isUnavailable}
-              tabIndex={isUnavailable ? -1 : 0}
-              className="focus:outline-none group/seat"
-            >
-              <rect
-                x={seat.x - SEAT_SIZE / 2}
-                y={seat.y - SEAT_SIZE / 2}
-                width={SEAT_SIZE}
-                height={SEAT_SIZE}
-                rx={SEAT_RADIUS}
-                fill={fill}
-                stroke={stroke}
-                strokeWidth={strokeWidth}
-                className={[
-                  !isUnavailable &&
-                    'group-focus/seat:stroke-blue-600 group-focus/seat:stroke-[0.5px]',
-                  isSelected && 'seat-select-pop',
-                  isHighlighted && 'seat-highlight-pulse',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                style={{
-                  cursor: isUnavailable ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.2s ease',
-                  outline: 'none',
-                }}
-              />
-              {showLabels && (
-                <text
-                  x={seat.x}
-                  y={seat.y}
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  fill={textColor}
-                  fontSize={SEAT_SIZE * 0.5}
-                  fontWeight={600}
-                  style={{ pointerEvents: 'none', userSelect: 'none' }}
-                >
-                  {seat.col}
-                </text>
-              )}
-            </g>
+              seat={seat}
+              rows={rows}
+              rowIndex={rowIndex}
+              seatIndex={seatIndex}
+              status={status}
+              isHighlighted={highlightedSeatIds?.has(seat.id) ?? false}
+              showLabels={showLabels}
+            />
           );
         }),
       )}

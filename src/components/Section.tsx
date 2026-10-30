@@ -3,6 +3,7 @@ import { useVenueStore } from '../store/seatStore';
 import type { Section } from '../interfaces/venue.interfaces';
 import type { VenueContentBounds } from '../utils/venueBounds';
 import { computeFitZoom, SECTION_FOCUS_TRANSITION_MS } from '../utils/viewTransform';
+import { getSectionGeometry } from '../utils/sectionGeometry';
 import Seats from './Seat';
 
 const FOCUS_PADDING = 60;
@@ -18,41 +19,10 @@ function Section({ section, bounds }: { section: Section; bounds: VenueContentBo
     return mapFocusSeatIds ? new Set(mapFocusSeatIds) : null;
   }, [mapFocusSeatIds]);
 
-  const { labelPos, explodeOffset } = useMemo(() => {
-    const emptyResult = { labelPos: { x: 0, y: 0 }, explodeOffset: { x: 0, y: 0 } };
-
-    const firstRow = section.rows[0];
-    const lastRow = section.rows[section.rows.length - 1];
-    if (!firstRow || !lastRow) return emptyResult;
-
-    const firstRowMid = firstRow.seats[Math.floor(firstRow.seats.length / 2)];
-    const lastRowMid = lastRow.seats[Math.floor(lastRow.seats.length / 2)];
-    if (!firstRowMid || !lastRowMid) return emptyResult;
-
-    const centerX = (firstRowMid.x + lastRowMid.x) / 2;
-    const centerY = (firstRowMid.y + lastRowMid.y) / 2;
-    const labelPosition = { x: centerX, y: centerY };
-
-    const venueCenterX = 1200;
-    const venueCenterY = 1200;
-    const dx = centerX - venueCenterX;
-    const dy = centerY - venueCenterY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    const gap = 40;
-    let offX = 0;
-    let offY = 0;
-
-    if (dist > 0) {
-      offX = (dx / dist) * gap;
-      offY = (dy / dist) * gap;
-    }
-
-    return {
-      labelPos: labelPosition,
-      explodeOffset: { x: offX, y: offY },
-    };
-  }, [section]);
+  const { labelPos, explodeOffset, coverPath } = useMemo(
+    () => getSectionGeometry(section),
+    [section],
+  );
 
   useEffect(() => {
     if (!isActive) return;
@@ -100,28 +70,6 @@ function Section({ section, bounds }: { section: Section; bounds: VenueContentBo
       SECTION_FOCUS_TRANSITION_MS,
     );
   }, [isActive, section, bounds, explodeOffset, focusSeatIds]);
-
-  const coverPath = useMemo(() => {
-    const firstRow = section.rows[0];
-    const lastRow = section.rows[section.rows.length - 1];
-    const firstSeat = firstRow?.seats[0];
-    if (!firstRow || !lastRow || !firstSeat) return '';
-
-    let d = `M ${firstSeat.x} ${firstSeat.y}`;
-
-    for (let i = 1; i < firstRow.seats.length; i++) {
-      const s = firstRow.seats[i];
-      if (s) d += ` L ${s.x} ${s.y}`;
-    }
-
-    for (let i = lastRow.seats.length - 1; i >= 0; i--) {
-      const s = lastRow.seats[i];
-      if (s) d += ` L ${s.x} ${s.y}`;
-    }
-
-    d += ' Z';
-    return d;
-  }, [section]);
 
   const toggleActive = () => {
     setActiveSection(isActive ? null : section.id);

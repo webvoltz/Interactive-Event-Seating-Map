@@ -5,6 +5,7 @@ import Toast from './components/Toast';
 import HoldRuntime from './components/HoldRuntime';
 import SeatStatusLegend from './components/SeatStatusLegend';
 import SelectionToolbar from './components/SelectionToolbar';
+import SimulationPanel from './components/SimulationPanel';
 import Icon from './components/Icon';
 import IconButton from './components/IconButton';
 import { useCallback, useEffect, useState, useRef } from 'react';
@@ -374,6 +375,7 @@ const App = () => {
         </div>
 
         <SeatStatusLegend />
+        <SimulationPanel venue={venue} />
         <SelectionToolbar venue={venue} />
       </main>
 

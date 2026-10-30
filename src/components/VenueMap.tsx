@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { Venue } from '../interfaces/venue.interfaces';
 import Section from './Section';
+import HeatmapLayer from './HeatmapLayer';
 import { useVenueStore } from '../store/seatStore';
 import { getVenueContentBounds } from '../utils/venueBounds';
 
@@ -83,6 +84,7 @@ export default function VenueMap({
           <Section key={section.id} section={section} bounds={bounds} />
         ))}
       </svg>
+      <HeatmapLayer venue={venue} bounds={bounds} />
     </div>
   );
 }
