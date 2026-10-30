@@ -78,16 +78,26 @@ checkout timer still decides expiry, and paying sells the seats.
 
 ![Drop Day: playing as a buyer, with two seats held and the checkout timer running](docs/screenshots/drop-day-buyer.png)
 
+**Scalper bots and detection** - add up to 2,000 bot identities that hit the queue in the first
+moments, grab the best seats in blocks of 4-8 and pay almost instantly. Press **Compare detection off
+vs on** to play the identical seeded sale twice (same crowd, same bots) and see who got the best 10%
+of the seats by view.
+
+![Drop Day: scalper bots, detection off vs on](docs/screenshots/drop-day-bots.png)
+
 ### Using it
 
 Open the **Drop Day** panel (top right) and press **Open sales**. Controls: Pause / Resume / Reset,
 speed (1x, 10x, 100x), a heatmap toggle, and the sale settings - buyers (1,000-20,000), arrival
-pattern (sudden spike, steady, waves), queue admission rate, hold time and a random seed. The
-settings are saved in the URL, so a shared link replays the identical sale:
+pattern (sudden spike, steady, waves), queue admission rate, hold time, a random seed, the number
+of scalper bots and whether detection is on. The settings are saved in the URL, so a shared link
+replays the identical sale:
 
 ```text
 /?buyers=20000&pattern=spike&admit=400&hold=300&seed=20261030
 ```
+
+Add `&bots=500&detect=1` for 500 scalper bots with the detector on.
 
 ### How it works
 
@@ -112,6 +122,16 @@ settings are saved in the URL, so a shared link replays the identical sale:
 - **Replay** is an append-only log of every seat change stamped with its tick
   ([`eventLog.ts`](src/simulation/eventLog.ts)); rebuilding the board at a moment is a prefix replay.
   Stats for a replayed moment come from full snapshots taken every 5 simulated seconds.
+- **Scalper bots are extra identities behaviour-tested by a rule engine.** Bots join the queue within
+  the first 300 ms (ahead of most of the crowd), act 20-80 ms after being let in, ask for the same
+  4-8 seat block on "best view" with no budget limit, and pay within 0.3-1.5 s. They are drawn from
+  the random stream after the crowd, so a sale with no bots is exactly the sale it always was.
+  The detector ([`detection.ts`](src/simulation/detection.ts)) is a periodic sweep (every 200 ms)
+  that blocks an identity when **two of three rules agree**: _action speed_ (two searches less than
+  150 ms apart), _seats per identity_ (more than 8) and _repeated pattern_ (the same request three
+  times in a row, each within a second). Blocking releases anything held but not yet paid for.
+  "Best seats" are the best 10% of the seats on sale by view, the same order `findBestSeats` hands
+  out first ([`bestSeats.ts`](src/simulation/bestSeats.ts)).
 - **The waiting room admits against stock**: it never lets in more buyers than there are free seats,
   and queued buyers keep waiting (rather than timing out) while every seat is held, so seats freed
   by lapsed holds are sold to people still waiting.
@@ -127,11 +147,25 @@ settings are saved in the URL, so a shared link replays the identical sale:
 | Simulation engine coverage 90%+                              | **99.9% lines**, 99.4% functions, 98.9% statements, 81.5% branches (most uncovered branches are defensive defaults on typed-array reads)                         |
 | Existing booking flow and tests keep working                 | `pnpm quality` and `pnpm test` pass (357 tests)                                                                                                                  |
 
+**Scalper bots** (20,000 real buyers, seed 20261030, the same sale played twice per row):
+
+| Bots  | Detection | Best seats that went to real fans | Bot seats bought (all seats) | Bots blocked   | Real buyers blocked |
+| ----- | --------- | --------------------------------- | ---------------------------- | -------------- | ------------------- |
+| 500   | off       | **30%** (bots took 790 of 1,129)  | 5,994                        | 0              | 0                   |
+| 500   | on        | **98%** (bots took 24)            | 24                           | 497 of 500     | 0                   |
+| 2,000 | off       | **29%**                           | 7,430                        | 0              | 0                   |
+| 2,000 | on        | **99%**                           | 16                           | 1,998 of 2,000 | 0                   |
+
+With 2,000 bots at 10x the page still runs at 57 FPS and the sale clock keeps pace. A bot can slip
+through if it pays inside the sweep window (the "24 seats" above), and the zero in the last column is
+a property of this model, in which simulated buyers are never faster than a person: it says nothing
+about false positives on real traffic.
+
 Computing a complete 20,000-buyer sale takes about **1.1 s** on a laptop. Heavy rushes run off the
 main thread, so the page stays at 60 FPS even where 100x briefly cannot keep up with the crowd.
 
-**What was deliberately left out:** scalper bots and detection (the spec's phase 2), real payments
-and any backend, and dynamic pricing. If you join the sale as a buyer, your actions change the
+**What was deliberately left out:** resale itself (bots only grab seats; no resale market is
+simulated), real payments and any backend, and dynamic pricing. If you join the sale as a buyer, your actions change the
 outcome, so a shared link reproduces the crowd's sale but not your session; replay within your own
 session is still exact.
 
@@ -284,6 +318,10 @@ they stay visible on mobile even when the booking panel is closed:
   the simulator UI; the only finding it reports is the existing section control nesting seat
   checkboxes inside a button (`nested-interactive`), which predates the simulator and is listed in
   [`docs/engineering-notes.md`](docs/engineering-notes.md).
+- **The bot comparison is readable without colour.** Each side ("Detection off" / "Detection on")
+  is a named region with a `role="meter"` carrying the fans/bots split as text, every bar is
+  accompanied by written counts, and the finished comparison is announced through the same polite
+  live region.
 - **Responsive.** The stats panel, waiting-room bar and timeline stack above the zoom buttons on
   small screens (stats collapsed by default) and dock around the map on large ones, without
   covering the controls.
@@ -301,6 +339,8 @@ they stay visible on mobile even when the booking panel is closed:
 - **On-sale day simulator**: Up to 20,000 simulated buyers rush the venue in a Web Worker - waiting
   room, seat clashes, holds, live heatmap and stats, replay on a draggable timeline, and a mode
   where you join the queue and buy against the crowd. Settings and seed live in the URL.
+- **Scalper bots and detection**: Up to 2,000 bot identities target the best seats; three behaviour
+  rules block them, and a before/after view plays the same sale with detection off and on.
 - **Map navigation**: Click-and-drag panning with smart zoom in/out controls.
 - **Seat status legend**: A persistent corner card decoding every seat color (selected, sold,
   reserved, held) at a glance.
@@ -472,14 +512,14 @@ no-op prune never triggers a re-render), the runtime hold simulation's determini
 checkout countdown's stable-announcement-band behavior each have their own dedicated, near-100%-covered
 test files under `src/utils/` and `src/hooks/`.
 
-The simulator adds about 135 tests, held to a higher bar than the UI around it
+The simulator adds about 170 tests, held to a higher bar than the UI around it
 (`src/simulation/**` has its own coverage thresholds in `vite.config.ts`). They include: a
 same-seed-same-result test for a full 20,000-buyer sale (final seat map, stats and event stream);
 per-tick invariants (no seat has two owners, sold seats never revert, counters match a recount of
 the board); parity with the real hold protocol (holds expire exactly when `pruneHolds` says they do;
 clashes resolve as `ingestPeerHold` does); replay exactness (the board rebuilt from the event log
 equals the true board at every sampled tick); the viewer flow against the engine; and a headless
-check that every arrival pattern sells every seat. The engine was also deliberately broken (hold
+check that every arrival pattern sells every seat. The bot work adds rule-level tests, a sale-level check that a no-bot sale is unchanged and that detection never blocks a real buyer, and tests that a deliberately loosened rule, a detector that never runs, and bots joining the back of the queue each fail. The engine was also deliberately broken (hold
 expiry, clash tie-break, seeded randomness) to confirm these tests fail.
 
 ---

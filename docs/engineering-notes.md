@@ -138,14 +138,39 @@ The choices below are the non-obvious ones.
 - **Joining late can mean never getting a seat.** Joining a 20,000-buyer sale after the opening rush
   puts you behind ~15,000 people for seats that sell out in ~30 s. That is realistic, but a poor demo:
   use 1x, a smaller crowd, or join the instant the sale opens.
-- **Scalper bots, detection rules and the before/after comparison (the spec's phase 2) are not
-  built.**
 - **The stats panel and Drop Day panel cover part of the map** on large screens (both collapse).
 - **Accessibility audit (axe-core, WCAG 2.0-2.2 A/AA + best-practice):** no violations in any simulator
   state. Remaining, pre-existing: the expanded section control (`role="button"`) contains the seats'
   checkboxes (`nested-interactive`); fixing it means restructuring how a section collapses by
   keyboard, which this work deliberately did not touch. axe also cannot compute the white-on-gradient
   contrast of the page header, so that needs a manual check.
+
+## Scalper bots and detection: decisions and limits
+
+- **Bots are extra identities, drawn after the crowd.** They live past the crowd in the engine's buyer
+  arrays (the viewer after them), and their random numbers come after every crowd draw, so a sale with
+  zero bots is bit-for-bit the sale it was before they existed. They have their own arrival lane (the
+  first 300 ms) so they are queued ahead of nearly everyone, but they still pass through the same
+  waiting room, admission-against-stock cap and search-snapshot clash resolution as everybody else.
+- **Bots spread out a little on purpose.** With every bot chasing the identical best block, 2,000
+  bots produced ~700,000 clashes and a 73 s compute for one sale. Each bot now skips a random quarter
+  of the seats (re-rolled per try) and gives up after 25 lost races, which brings that to ~6 s and is
+  closer to a fleet rotating identities.
+- **Detection is a periodic sweep, not a per-request gate.** Rules run every 200 ms over identities
+  that acted since the last sweep, and a block needs two rules to agree (action speed, seats per
+  identity, repeated pattern). The window between a bot's grab and its payment is the race the detector
+  has to win, which is why a handful of bot seats always slip through. A 500 ms sweep leaked far more
+  (fans got ~88% of the best seats instead of ~98%).
+- **The zero false-positive result is a property of the model.** Simulated humans think for at least
+  400 ms and never hold more than 8 seats, so none can trip the speed or seats rules, and two rules
+  must agree. Real traffic (fast typists, shared carts, retry storms) would need its own tuning and a
+  review of blocked identities; the model cannot say anything about that.
+- **The before/after view is two full sales in a worker of its own** (~1-8 s of compute each), so a
+  live sale is never interrupted. The only thing that changes between the two runs is the detector, so
+  the best-seat pool and the crowd are identical.
+- **Limits:** bots only grab and pay (no resale market, no identity rotation across IPs or devices,
+  no adaptive bots that slow down to evade the speed rule). An adaptive bot is exactly the thing
+  this detector would miss.
 
 ## Known remaining gaps
 
