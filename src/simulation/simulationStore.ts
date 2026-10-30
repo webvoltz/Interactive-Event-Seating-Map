@@ -2,10 +2,17 @@ import { create } from 'zustand';
 import { DEFAULT_CONFIG, normalizeConfig, parseConfigFromSearch, type SimConfig } from './config';
 import type { SimSample, SimStats, ViewerState } from './engine';
 import { TICK_MS } from './engine';
+import type { DetectionComparison } from './comparison';
 import { EventLog } from './eventLog';
 import type { SimSpeed } from './protocol';
 
 export type SimPhase = 'idle' | 'running' | 'paused' | 'finished';
+
+// The scalper-bot before/after run: two full sales, played in a worker of their own.
+export type ComparisonState =
+  | { status: 'idle' }
+  | { status: 'running'; finished: 0 | 1 | 2 }
+  | { status: 'done'; result: DetectionComparison };
 
 export interface SimBatch {
   seatChanges: Uint32Array;
@@ -39,7 +46,9 @@ interface SimulationState {
   // Section index -> `performance.now()` when it sold out, for the brief highlight.
   soldOutAt: Readonly<Record<number, number>>;
   announcement: string;
+  comparison: ComparisonState;
 
+  setComparison: (comparison: ComparisonState) => void;
   setConfig: (partial: Partial<SimConfig>) => void;
   setSpeed: (speed: SimSpeed) => void;
   setHeatmap: (on: boolean) => void;
@@ -121,7 +130,17 @@ export const useSimulationStore = create<SimulationState>()((set, get) => ({
   summaryDismissed: false,
   soldOutAt: {},
   announcement: '',
+  comparison: { status: 'idle' },
 
+  setComparison: (comparison) => {
+    set({
+      comparison,
+      // A finished comparison is worth saying out loud; a progress tick is not.
+      ...(comparison.status === 'done' && {
+        announcement: `Scalper bot comparison ready: real fans got ${comparison.result.off.fanShare.toFixed(0)} percent of the best seats without detection and ${comparison.result.on.fanShare.toFixed(0)} percent with it.`,
+      }),
+    });
+  },
   setConfig: (partial) => {
     set((state) => ({ config: normalizeConfig({ ...state.config, ...partial }) }));
   },

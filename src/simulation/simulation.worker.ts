@@ -1,5 +1,6 @@
 import type { Venue } from '../interfaces/venue.interfaces';
 import type { SimConfig } from './config';
+import { compareDetection } from './comparison';
 import { SimulationEngine } from './engine';
 import { pump, type PacerState } from './pacer';
 import type { SimSpeed, WorkerCommand, WorkerEvent } from './protocol';
@@ -115,6 +116,13 @@ scope.onmessage = (event: MessageEvent) => {
     case 'speed':
       speed = command.speed;
       break;
+    case 'compare': {
+      const result = compareDetection(command.venue, command.config, (finished) => {
+        scope.postMessage({ type: 'comparisonProgress', finished }, []);
+      });
+      scope.postMessage({ type: 'comparison', result }, []);
+      break;
+    }
     case 'viewerJoin':
       engine?.joinViewer();
       // A finished sale stops its timer; a newcomer in the queue needs it running again.

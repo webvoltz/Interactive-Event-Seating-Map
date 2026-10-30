@@ -284,7 +284,7 @@ describe('simulation worker', () => {
     expect(posted.at(-1)?.type).toBe('ready');
   });
 
-  it('relays the viewer�s commands, refusing seats it cannot give and restarting a stopped sale for a newcomer', async () => {
+  it('relays the viewer’s commands, refusing seats it cannot give and restarting a stopped sale for a newcomer', async () => {
     vi.useFakeTimers();
     const posted: WorkerEvent[] = [];
     Object.defineProperty(self, 'postMessage', {
@@ -335,5 +335,32 @@ describe('simulation worker', () => {
     send({ type: 'viewerJoin' });
     await vi.advanceTimersByTimeAsync(2000);
     expect(lastBatch().viewer.stage).not.toBe('none');
+  });
+
+  it('plays a comparison in one go: progress after each sale, then both results', async () => {
+    const posted: WorkerEvent[] = [];
+    Object.defineProperty(self, 'postMessage', {
+      value: (message: WorkerEvent) => {
+        posted.push(message);
+      },
+      configurable: true,
+      writable: true,
+    });
+    await import('./simulation.worker');
+    self.onmessage?.call(
+      self,
+      new MessageEvent('message', {
+        data: { type: 'compare', venue, config: makeConfig({ buyers: 1000, bots: 20, seed: 6 }) },
+      }),
+    );
+    const kinds = posted.map((m) =>
+      m.type === 'comparisonProgress' ? `progress${m.finished}` : m.type,
+    );
+    expect(kinds).toEqual(['progress0', 'progress1', 'progress2', 'comparison']);
+    const last = posted.at(-1);
+    if (last?.type !== 'comparison') throw new Error('no comparison result');
+    expect(last.result.off.detection).toBe(false);
+    expect(last.result.on.detection).toBe(true);
+    expect(last.result.on.botsTotal).toBe(20);
   });
 });

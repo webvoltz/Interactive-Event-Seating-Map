@@ -3,6 +3,14 @@ import { findBestSeats } from '../utils/findBestSeats';
 import { peerWinsClash } from '../utils/holdProtocol';
 import { TIERS } from '../utils/seatIndex';
 import { MAX_GROUP_SIZE, type SimConfig } from './config';
+import { rankBestSeats } from './bestSeats';
+import {
+  DETECTION,
+  IdentityTracker,
+  countSignals,
+  type RuleName,
+  type RuleSignals,
+} from './detection';
 import { EventQueue } from './eventQueue';
 import { createRng, mix32, type Rng } from './random';
 import { AVAILABLE, HELD, NO_OWNER, SOLD, SeatBook } from './seatBook';
@@ -24,6 +32,7 @@ const EV_SEARCH = 0;
 const EV_PAY = 1;
 const EV_EXPIRE = 2;
 const EV_QUEUE_TIMEOUT = 3;
+const EV_BOT_PAY = 4;
 
 const GROUP_WEIGHTS = [20, 35, 15, 18, 4, 4, 2, 2];
 const BUDGET_CAPS = Object.values(TIERS)
@@ -39,6 +48,11 @@ const MAX_CLASH_RETRIES = 6;
 const HEAT_WINDOW_TICKS = 100;
 const CLASH_WINDOW_TICKS = 10;
 const SESSION_ID_WIDTH = 6;
+// Bots arrive within the first moments of the sale, ahead of the crowd, and act in a blink.
+const BOT_ARRIVAL_MAX_MS = 300;
+// Bots rotate identities and settle for a nearby block rather than all fighting over one.
+const BOT_SKIP_BYTE = 64;
+const BOT_MAX_CLASH_RETRIES = 25;
 const QUEUE_RECHECK_MS = 60_000;
 
 export interface SectionStats {
@@ -52,6 +66,24 @@ export interface SectionStats {
   soldOut: boolean;
   // Seats claimed (held or sold) in the trailing 10 simulated seconds.
   velocity: number;
+}
+
+export interface BotStats {
+  identities: number;
+  detection: boolean;
+  admitted: number;
+  // Bot identities the detector blocked, and real buyers it blocked by mistake.
+  blocked: number;
+  humansBlocked: number;
+  seatsHeld: number;
+  seatsSold: number;
+  revenue: number;
+  // Which rules were firing on the identities that got blocked.
+  blockedBy: Record<RuleName, number>;
+  // The best 10% of the seats on sale (by view) and who ended up with them.
+  bestSeats: { total: number; soldToFans: number; soldToBots: number };
+  // Share of the best seats sold that went to real buyers, as a percentage (100 with no bots).
+  fanShare: number;
 }
 
 export interface SimStats {
@@ -80,6 +112,7 @@ export interface SimStats {
   soldOutAtMs: number | null;
   saleOverAtMs: number | null;
   sections: SectionStats[];
+  bots: BotStats;
 }
 
 // One point of the sale's history, taken on a fixed simulated schedule so charts repeat exactly.
@@ -163,6 +196,29 @@ export class SimulationEngine {
   private readonly queuedAt: Float64Array;
   private readonly holdExpiresAt: Float64Array;
 
+  // Scalper bots sit after the crowd in the buyer arrays, then the viewer after them.
+  private readonly botCount: number;
+  private readonly botArriveAt: Float64Array;
+  private readonly botSize: Uint8Array;
+  private readonly botRoundsLeft: Uint8Array;
+  private readonly botHeld: number[][];
+  private nextBotArrival = 0;
+  private readonly blocked: Uint8Array;
+  private readonly admittedAt: Float64Array;
+  private readonly tracker: IdentityTracker;
+  private readonly bestSeat: Uint8Array;
+  private readonly bestTotal: number;
+  private lastSearchSize = 1;
+  private botsAdmitted = 0;
+  private botsBlocked = 0;
+  private humansBlocked = 0;
+  private botSeatsHeld = 0;
+  private botSeatsSold = 0;
+  private botRevenue = 0;
+  private bestToFans = 0;
+  private bestToBots = 0;
+  private readonly blockedBy: Record<RuleName, number> = { speed: 0, seats: 0, pattern: 0 };
+
   // The viewer is one more buyer, past the crowd, driven by commands instead of the state machine.
   private readonly viewerIndex: number;
   private viewerStage: ViewerStage = 'none';
@@ -208,11 +264,12 @@ export class SimulationEngine {
     this.venue = venue;
     this.config = config;
     this.rng = createRng(config.seed);
-    this.viewerIndex = config.buyers;
+    this.botCount = config.bots;
+    this.viewerIndex = config.buyers + config.bots;
     this.book = new SeatBook(venue);
 
-    // One extra slot, past the crowd, belongs to the viewer who may join as a buyer.
-    const n = config.buyers + 1;
+    // Slots past the crowd belong to the bots, then the one viewer who may join as a buyer.
+    const n = config.buyers + config.bots + 1;
     this.arriveAt = new Float64Array(n);
     this.groupSize = new Uint8Array(n);
     this.budgetIndex = new Uint8Array(n);
@@ -231,6 +288,13 @@ export class SimulationEngine {
     this.queuedAt = new Float64Array(n);
     this.holdExpiresAt = new Float64Array(n);
     this.queue = new Int32Array(n);
+    this.blocked = new Uint8Array(n);
+    this.admittedAt = new Float64Array(n);
+    this.tracker = new IdentityTracker(n);
+    this.botArriveAt = new Float64Array(config.bots);
+    this.botSize = new Uint8Array(n);
+    this.botRoundsLeft = new Uint8Array(n);
+    this.botHeld = Array.from({ length: config.bots }, () => []);
 
     this.sectionFlaggedSoldOut = new Uint8Array(this.book.sectionCount);
     this.sectionSoldOutAt = new Float64Array(this.book.sectionCount).fill(Number.NaN);
@@ -239,6 +303,9 @@ export class SimulationEngine {
     this.heatSum = new Uint32Array(this.book.sectionCount);
 
     this.generateBuyers();
+    this.generateBots();
+    this.bestSeat = rankBestSeats(venue, this.book);
+    this.bestTotal = this.bestSeat.reduce((sum, flag) => sum + flag, 0);
     if (this.book.availableCount === 0) this.saleOverAtMs = 0;
     this.recordSample();
   }
@@ -248,7 +315,12 @@ export class SimulationEngine {
   }
 
   get finished(): boolean {
-    return this.nextArrival >= this.config.buyers && this.queueLive === 0 && this.events.size === 0;
+    return (
+      this.nextArrival >= this.config.buyers &&
+      this.nextBotArrival >= this.botCount &&
+      this.queueLive === 0 &&
+      this.events.size === 0
+    );
   }
 
   // Advances in whole ticks only; returns the simulated time actually reached.
@@ -340,6 +412,28 @@ export class SimulationEngine {
       soldOutAtMs: this.soldOutAtMs,
       saleOverAtMs: this.saleOverAtMs,
       sections,
+      bots: this.getBotStats(),
+    };
+  }
+
+  private getBotStats(): BotStats {
+    const sold = this.bestToFans + this.bestToBots;
+    return {
+      identities: this.botCount,
+      detection: this.config.detection,
+      admitted: this.botsAdmitted,
+      blocked: this.botsBlocked,
+      humansBlocked: this.humansBlocked,
+      seatsHeld: this.botSeatsHeld,
+      seatsSold: this.botSeatsSold,
+      revenue: this.botRevenue,
+      blockedBy: { ...this.blockedBy },
+      bestSeats: {
+        total: this.bestTotal,
+        soldToFans: this.bestToFans,
+        soldToBots: this.bestToBots,
+      },
+      fanShare: sold === 0 ? 100 : (this.bestToFans / sold) * 100,
     };
   }
 
@@ -364,6 +458,27 @@ export class SimulationEngine {
       this.salt[i] = Math.floor(rng.next() * 4294967296);
       this.stage[i] = STAGE.ARRIVING;
     }
+  }
+
+  // Drawn after the whole crowd, so a sale with no bots is exactly the sale it always was.
+  private generateBots(): void {
+    const { rng } = this;
+    const first = this.config.buyers;
+    const arrivals = new Float64Array(this.botCount);
+    for (let i = 0; i < this.botCount; i++) arrivals[i] = rng.between(0, BOT_ARRIVAL_MAX_MS);
+    arrivals.sort();
+    this.botArriveAt.set(arrivals);
+    for (let i = 0; i < this.botCount; i++) {
+      // Every bot always asks for the same shape of block, a few times over: the pattern a scalper has.
+      this.botSize[first + i] = rng.between(4, MAX_GROUP_SIZE);
+      this.botRoundsLeft[first + i] = rng.between(2, 3);
+      this.salt[first + i] = Math.floor(rng.next() * 4294967296);
+      this.stage[first + i] = STAGE.ARRIVING;
+    }
+  }
+
+  private isBot(buyer: number): boolean {
+    return buyer >= this.config.buyers && buyer < this.viewerIndex;
   }
 
   private drawArrival(): number {
@@ -400,6 +515,7 @@ export class SimulationEngine {
     }
 
     this.runSearches(searchers);
+    if (this.config.detection && this.now % DETECTION.SCAN_MS === 0) this.scanDetection();
     this.checkSaleOver();
     this.sampleIfDue();
   }
@@ -441,6 +557,24 @@ export class SimulationEngine {
   }
 
   private admitArrivals(): void {
+    // Bots hit the queue first: they were waiting for the on-sale moment, and crowds trickle in.
+    const firstBot = this.config.buyers;
+    while (this.nextBotArrival < this.botCount) {
+      const bot = firstBot + this.nextBotArrival;
+      const arrivedAt = this.botArriveAt[this.nextBotArrival] ?? 0;
+      if (arrivedAt > this.now) break;
+      this.nextBotArrival += 1;
+      if (this.saleOverAtMs !== null) {
+        this.stage[bot] = STAGE.ABANDONED;
+        continue;
+      }
+      this.stage[bot] = STAGE.QUEUED;
+      this.queuedAt[bot] = arrivedAt;
+      this.queue[this.queueTail] = bot;
+      this.queueTail += 1;
+      this.queueLive += 1;
+    }
+
     while (this.nextArrival < this.config.buyers) {
       const buyer = this.nextArrival;
       if ((this.arriveAt[buyer] ?? 0) > this.now) break;
@@ -490,6 +624,13 @@ export class SimulationEngine {
         continue;
       }
       this.pendingSearch += 1;
+      this.admittedAt[buyer] = this.now;
+      if (this.isBot(buyer)) {
+        // A script clicks the instant it is let in.
+        this.botsAdmitted += 1;
+        this.events.push(this.now + this.rng.between(20, 80), buyer, EV_SEARCH);
+        continue;
+      }
       this.served += 1;
       this.waitTotalMs += this.now - (this.queuedAt[buyer] ?? this.now);
       this.events.push(this.now + this.rng.between(400, 2_500), buyer, EV_SEARCH);
@@ -509,6 +650,9 @@ export class SimulationEngine {
           this.queueLive -= 1;
           this.gaveUpInQueue += 1;
         }
+        break;
+      case EV_BOT_PAY:
+        this.completeBotPurchase(buyer);
         break;
       case EV_PAY:
         if (this.stage[buyer] === STAGE.HOLDING && (this.holdExpiresAt[buyer] ?? 0) > time) {
@@ -540,6 +684,7 @@ export class SimulationEngine {
       this.book.sell(seat);
       this.revenue += this.book.price[seat] ?? 0;
       this.record(seat, SOLD);
+      this.noteSale(seat, false);
     }
     this.heldCount[buyer] = 0;
     this.stage[buyer] = STAGE.PURCHASED;
@@ -578,6 +723,12 @@ export class SimulationEngine {
       if (stage === STAGE.ADMITTED) this.pendingSearch -= 1;
       this.stage[buyer] = STAGE.SEARCHING;
       const seats = this.findSeatsFor(buyer);
+      this.tracker.noteAction(
+        buyer,
+        this.now,
+        this.lastSearchSize,
+        this.admittedAt[buyer] ?? this.now,
+      );
       if (seats) claims.push({ buyer, seats });
       else failed.push(buyer);
     }
@@ -604,6 +755,13 @@ export class SimulationEngine {
       const ring = this.tickNo % CLASH_WINDOW_TICKS;
       this.clashRing[ring] = (this.clashRing[ring] ?? 0) + contested;
       this.clashCount[buyer] = (this.clashCount[buyer] ?? 0) + 1;
+      if (this.isBot(buyer)) {
+        // A bot has no patience to run out: it just fires again almost at once.
+        if ((this.clashCount[buyer] ?? 0) > BOT_MAX_CLASH_RETRIES)
+          this.stage[buyer] = STAGE.ABANDONED;
+        else this.events.push(this.now + this.rng.between(30, 90), buyer, EV_SEARCH);
+        return;
+      }
       if ((this.clashCount[buyer] ?? 0) > MAX_CLASH_RETRIES) {
         this.giveUpSearching(buyer);
       } else {
@@ -611,6 +769,11 @@ export class SimulationEngine {
         const backoff = this.rng.between(200, 900) * (this.clashCount[buyer] ?? 1);
         this.events.push(this.now + backoff, buyer, EV_SEARCH);
       }
+      return;
+    }
+
+    if (this.isBot(buyer)) {
+      this.claimForBot(buyer, seats, touched);
       return;
     }
 
@@ -664,6 +827,11 @@ export class SimulationEngine {
   }
 
   private onSearchFailed(buyer: number): void {
+    if (this.isBot(buyer)) {
+      // Nothing of the shape it wants is left; the script moves on.
+      this.stage[buyer] = STAGE.ABANDONED;
+      return;
+    }
     this.attempts[buyer] = (this.attempts[buyer] ?? 0) + 1;
     if (this.book.availableCount === 0) {
       this.releaseAll(buyer);
@@ -683,6 +851,7 @@ export class SimulationEngine {
 
   // Escalating fallback: preferred section -> any section -> higher budget -> split the group.
   private findSeatsFor(buyer: number): number[] | null {
+    if (this.isBot(buyer)) return this.findSeatsForBot(buyer);
     const attempt = this.attempts[buyer] ?? 0;
     const need = this.need[buyer] ?? 1;
 
@@ -696,21 +865,12 @@ export class SimulationEngine {
     );
     const budget = attempt >= 4 ? Infinity : (BUDGET_CAPS[budgetStep] ?? Infinity);
 
-    // Only rows with enough free seats can hold the party, so searching just those gives the same
-    // answer as searching everything, in a fraction of the time once the venue fills up.
-    const sections: Venue['sections'] = [];
-    const consider = (section: Venue['sections'][number] | undefined, s: number) => {
-      if (!section || this.book.longestFreeRun(s, budget) < size) return;
-      const first = this.book.sectionRowStart[s] ?? 0;
-      const rows = section.rows.filter((_, r) => (this.book.rowFree[first + r] ?? 0) >= size);
-      if (rows.length > 0) sections.push({ ...section, rows });
-    };
-    if (attempt === 0) {
-      const preferred = this.prefSection[buyer] ?? 0;
-      consider(this.venue.sections[preferred], preferred);
-    } else {
-      this.venue.sections.forEach(consider);
-    }
+    this.lastSearchSize = size;
+    const sections = this.candidateSections(
+      size,
+      budget,
+      attempt === 0 ? (this.prefSection[buyer] ?? 0) : null,
+    );
     if (sections.length === 0) return null;
 
     const tasteOn = attempt < 2;
@@ -739,6 +899,25 @@ export class SimulationEngine {
     return indices;
   }
 
+  // Only rows with enough free seats can hold the party, so searching just those gives the same
+  // answer as searching everything, in a fraction of the time once the venue fills up.
+  private candidateSections(
+    size: number,
+    budget: number,
+    onlySection: number | null,
+  ): Venue['sections'] {
+    const sections: Venue['sections'] = [];
+    const consider = (section: Venue['sections'][number] | undefined, s: number) => {
+      if (!section || this.book.longestFreeRun(s, budget) < size) return;
+      const first = this.book.sectionRowStart[s] ?? 0;
+      const rows = section.rows.filter((_, r) => (this.book.rowFree[first + r] ?? 0) >= size);
+      if (rows.length > 0) sections.push({ ...section, rows });
+    };
+    if (onlySection !== null) consider(this.venue.sections[onlySection], onlySection);
+    else this.venue.sections.forEach(consider);
+    return sections;
+  }
+
   private checkSaleOver(): void {
     if (this.saleOverAtMs !== null) return;
     if (this.book.availableCount !== 0 || this.book.heldCount !== 0) return;
@@ -751,10 +930,116 @@ export class SimulationEngine {
       if (buyer === this.viewerIndex) {
         this.stage[buyer] = STAGE.ABANDONED;
         this.viewerStage = 'turned-away';
+      } else if (this.isBot(buyer)) {
+        this.stage[buyer] = STAGE.ABANDONED;
       } else {
         this.turnAway(buyer);
       }
     }
+  }
+
+  // ---- scalper bots and the detector -------------------------------------------------------
+
+  private noteSale(seat: number, byBot: boolean): void {
+    if (this.bestSeat[seat] !== 1) return;
+    if (byBot) this.bestToBots += 1;
+    else this.bestToFans += 1;
+  }
+
+  // Bots want the best view in the house and don't care what it costs.
+  private findSeatsForBot(buyer: number): number[] | null {
+    const size = this.botSize[buyer] ?? MAX_GROUP_SIZE;
+    this.lastSearchSize = size;
+    const sections = this.candidateSections(size, Infinity, null);
+    if (sections.length === 0) return null;
+
+    const { book } = this;
+    const salt = mix32(this.salt[buyer] ?? 0, this.tries[buyer] ?? 0);
+    this.tries[buyer] = (this.tries[buyer] ?? 0) + 1;
+    const block = findBestSeats({ ...this.venue, sections }, size, 'view', (seat) => {
+      const index = book.indexById.get(seat.id);
+      if (index === undefined || book.status[index] !== AVAILABLE) return false;
+      return (mix32(salt, index) & 0xff) >= BOT_SKIP_BYTE;
+    });
+    if (!block) return null;
+    const indices: number[] = [];
+    for (const id of block.seatIds) {
+      const index = book.indexById.get(id);
+      if (index !== undefined) indices.push(index);
+    }
+    return indices;
+  }
+
+  private claimForBot(buyer: number, seats: number[], touched: number[]): void {
+    const held = this.botHeld[buyer - this.config.buyers];
+    if (!held) return;
+    const startedBatch = held.length === 0;
+    for (const seat of seats) {
+      this.claimedBy[seat] = buyer;
+      touched.push(seat);
+      this.book.hold(seat, buyer);
+      this.afterSeatHeld(seat);
+      held.push(seat);
+    }
+    this.botSeatsHeld += seats.length;
+    this.tracker.addSeats(buyer, seats.length);
+
+    // Checkout is automated too, but it still takes a moment: that moment is the detector's window.
+    if (startedBatch) this.events.push(this.now + this.rng.between(300, 1_500), buyer, EV_BOT_PAY);
+
+    this.botRoundsLeft[buyer] = (this.botRoundsLeft[buyer] ?? 1) - 1;
+    if ((this.botRoundsLeft[buyer] ?? 0) > 0) {
+      this.events.push(this.now + this.rng.between(40, 100), buyer, EV_SEARCH);
+    } else {
+      this.stage[buyer] = STAGE.HOLDING;
+    }
+  }
+
+  private completeBotPurchase(buyer: number): void {
+    const held = this.botHeld[buyer - this.config.buyers];
+    if (!held || this.blocked[buyer] === 1) return;
+    for (const seat of held) {
+      this.book.sell(seat);
+      const price = this.book.price[seat] ?? 0;
+      this.revenue += price;
+      this.botRevenue += price;
+      this.botSeatsSold += 1;
+      this.record(seat, SOLD);
+      this.noteSale(seat, true);
+    }
+    held.length = 0;
+    if ((this.botRoundsLeft[buyer] ?? 0) === 0) this.stage[buyer] = STAGE.PURCHASED;
+  }
+
+  // A periodic sweep over whoever acted since the last one: two rules agreeing blocks the identity.
+  private scanDetection(): void {
+    for (const id of this.tracker.takeDirty()) {
+      if (this.blocked[id] === 1 || id === this.viewerIndex) continue;
+      const signals = this.tracker.signals(id);
+      if (countSignals(signals) >= DETECTION.RULES_TO_BLOCK) this.blockIdentity(id, signals);
+    }
+  }
+
+  // Blocking stops the identity and puts back anything it holds but has not yet paid for.
+  private blockIdentity(id: number, signals: RuleSignals): void {
+    this.blocked[id] = 1;
+    for (const rule of ['speed', 'seats', 'pattern'] as const) {
+      if (signals[rule]) this.blockedBy[rule] += 1;
+    }
+    if (this.isBot(id)) {
+      this.botsBlocked += 1;
+      const held = this.botHeld[id - this.config.buyers] ?? [];
+      for (const seat of held) {
+        this.book.release(seat);
+        this.record(seat, AVAILABLE);
+        this.sectionFlaggedSoldOut[this.book.sectionOf[seat] ?? 0] = 0;
+      }
+      held.length = 0;
+    } else {
+      this.humansBlocked += 1;
+      this.releaseAll(id);
+    }
+    this.stage[id] = STAGE.ABANDONED;
   }
 
   // ---- the viewer as a buyer ----------------------------------------------------------------
@@ -811,6 +1096,7 @@ export class SimulationEngine {
       this.book.sell(seat);
       this.revenue += this.book.price[seat] ?? 0;
       this.record(seat, SOLD);
+      this.noteSale(seat, false);
       this.viewerBought += 1;
     }
   }

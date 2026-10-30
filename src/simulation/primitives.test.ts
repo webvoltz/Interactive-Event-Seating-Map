@@ -3,6 +3,7 @@ import { MAX_SELECTABLE_SEATS } from '../utils/selectionLimits';
 import {
   ADMIT_MAX,
   ADMIT_MIN,
+  BOTS_MAX,
   BUYERS_MAX,
   BUYERS_MIN,
   DEFAULT_CONFIG,
@@ -132,6 +133,24 @@ describe('config', () => {
     );
     expect(parseConfigFromSearch('?buyers=999999').buyers).toBe(BUYERS_MAX);
     expect(parseConfigFromSearch('?hold=60').holdMs).toBe(60_000);
+  });
+});
+
+describe('scalper bot settings', () => {
+  it('keeps bots and detection out of the URL until they are used', () => {
+    expect(serializeConfig(DEFAULT_CONFIG)).not.toMatch(/bots|detect/);
+    const used = normalizeConfig({ bots: 500, detection: true });
+    const query = serializeConfig(used);
+    expect(query).toContain('bots=500');
+    expect(query).toContain('detect=1');
+    expect(parseConfigFromSearch(`?${query}`)).toEqual(used);
+  });
+
+  it('clamps the bot count and ignores a malformed detect flag', () => {
+    expect(normalizeConfig({ bots: -4 }).bots).toBe(0);
+    expect(normalizeConfig({ bots: 1e9 }).bots).toBe(BOTS_MAX);
+    expect(parseConfigFromSearch('?bots=junk&detect=yes')).toEqual(DEFAULT_CONFIG);
+    expect(parseConfigFromSearch('?bots=250').detection).toBe(false);
   });
 });
 

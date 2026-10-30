@@ -6,6 +6,7 @@ import { buildSeatIdList } from './seatBook';
 import { useSimulationStore, type SimBatch } from './simulationStore';
 
 let worker: Worker | null = null;
+let comparisonWorker: Worker | null = null;
 let pending: SimBatch[] = [];
 let frame = 0;
 let startAfterReady = false;
@@ -37,6 +38,8 @@ function dropRejected(indices: readonly number[]): void {
 
 function onWorkerEvent(event: MessageEvent<WorkerEvent>): void {
   const message = event.data;
+  // Comparison messages belong to their own worker; they never come from the live sale's.
+  if (message.type === 'comparison' || message.type === 'comparisonProgress') return;
   const store = useSimulationStore.getState();
   if (message.type === 'ready') {
     if (!activeVenue) return;
@@ -184,4 +187,34 @@ export function resetSale(): void {
   if (frame) cancelAnimationFrame(frame);
   frame = 0;
   useSimulationStore.getState().clearRun();
+}
+
+// Plays the current settings' sale twice in a worker of its own (detector off, then on), so the live
+// sale, if any, keeps running untouched.
+export function runDetectionComparison(venue: Venue): void {
+  const { config, setComparison } = useSimulationStore.getState();
+  cancelComparison();
+  const runner = new Worker(new URL('./simulation.worker.ts', import.meta.url), { type: 'module' });
+  comparisonWorker = runner;
+  setComparison({ status: 'running', finished: 0 });
+  runner.onmessage = (event: MessageEvent<WorkerEvent>) => {
+    const message = event.data;
+    if (message.type === 'comparisonProgress') {
+      setComparison({ status: 'running', finished: message.finished });
+    } else if (message.type === 'comparison') {
+      setComparison({ status: 'done', result: message.result });
+      cancelComparison();
+    }
+  };
+  runner.postMessage({ type: 'compare', venue, config });
+}
+
+export function cancelComparison(): void {
+  comparisonWorker?.terminate();
+  comparisonWorker = null;
+}
+
+export function dismissComparison(): void {
+  cancelComparison();
+  useSimulationStore.getState().setComparison({ status: 'idle' });
 }

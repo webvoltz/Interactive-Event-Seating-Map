@@ -11,6 +11,9 @@ export interface SimConfig {
   admitPerSec: number;
   holdMs: number;
   seed: number;
+  // Scalper-bot identities added on top of the crowd (0 = none), and whether the detector is on.
+  bots: number;
+  detection: boolean;
 }
 
 export const BUYERS_MIN = 1_000;
@@ -19,6 +22,7 @@ export const ADMIT_MIN = 10;
 export const ADMIT_MAX = 5_000;
 export const HOLD_MIN_MS = 10_000;
 export const HOLD_MAX_MS = 15 * 60_000;
+export const BOTS_MAX = 2_000;
 export const MAX_GROUP_SIZE = MAX_SELECTABLE_SEATS;
 
 export const DEFAULT_CONFIG: SimConfig = {
@@ -27,6 +31,8 @@ export const DEFAULT_CONFIG: SimConfig = {
   admitPerSec: 400,
   holdMs: SELECTION_HOLD_MS,
   seed: 20261030,
+  bots: 0,
+  detection: false,
 };
 
 function clampInt(value: number, min: number, max: number): number {
@@ -51,6 +57,8 @@ export function normalizeConfig(partial: Partial<SimConfig>): SimConfig {
     admitPerSec: clampInt(merged.admitPerSec, ADMIT_MIN, ADMIT_MAX),
     holdMs: clampInt(merged.holdMs, HOLD_MIN_MS, HOLD_MAX_MS),
     seed: Math.round(merged.seed) >>> 0,
+    bots: clampInt(merged.bots, 0, BOTS_MAX),
+    detection: merged.detection,
   };
 }
 
@@ -70,6 +78,10 @@ export function parseConfigFromSearch(search: string): SimConfig {
   const seed = parseNumber(params.get('seed'));
   if (seed !== null) partial.seed = seed;
 
+  const bots = parseNumber(params.get('bots'));
+  if (bots !== null) partial.bots = bots;
+  if (params.get('detect') === '1') partial.detection = true;
+
   return normalizeConfig(partial);
 }
 
@@ -81,5 +93,8 @@ export function serializeConfig(config: SimConfig): string {
     hold: String(Math.round(config.holdMs / 1000)),
     seed: String(config.seed),
   });
+  // Only written when used, so ordinary sale links stay short.
+  if (config.bots > 0) params.set('bots', String(config.bots));
+  if (config.detection) params.set('detect', '1');
   return params.toString();
 }
