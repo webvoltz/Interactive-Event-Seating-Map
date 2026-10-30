@@ -137,6 +137,8 @@ describe('statsFormat', () => {
     expect(summary.seatsSold).toBe(stats.seats.sold);
     expect(summary.sellableSeats).toBe(stats.seats.total - stats.seats.reserved);
     expect(summary.revenue).toBe(stats.revenue);
+    expect(summary.reservedSeats).toBe(stats.seats.reserved);
+    expect(summary.unsoldSeats).toBe(stats.seats.available + stats.seats.held);
     expect(summary.saleEndedAtMs).toBe(stats.simTimeMs);
     expect(summary.fastest).not.toBeNull();
 

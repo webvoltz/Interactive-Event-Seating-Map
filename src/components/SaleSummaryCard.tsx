@@ -72,6 +72,13 @@ export default function SaleSummaryCard({ venue }: { venue: Venue }) {
         <Fact label="Seat clashes" value={summary.clashes.toLocaleString()} />
       </dl>
 
+      <p className="mt-3 text-xs text-gray-600">
+        {summary.sellableSeats.toLocaleString()} seats were on sale; the other{' '}
+        {summary.reservedSeats.toLocaleString()} are reserved in the venue and never sold.
+        {summary.unsoldSeats > 0 &&
+          ` ${summary.unsoldSeats.toLocaleString()} unsold: they went back on sale when late holds lapsed, after the last buyers had left the waiting room.`}
+      </p>
+
       {(summary.fastest ?? summary.slowest) && (
         <ul className="mt-4 space-y-1 border-t border-gray-200 pt-3 text-sm text-gray-800">
           {summary.fastest && (

@@ -110,6 +110,9 @@ describe('SaleStatsPanel', () => {
     render(<SaleStatsPanel />);
 
     expect(screen.getByText('42.5%')).toBeInTheDocument();
+    expect(
+      screen.getByText(/on sale \+ 0 reserved \(never for sale\) = 40 seats/),
+    ).toBeInTheDocument();
     expect(screen.getByText('01:15')).toBeInTheDocument();
     expect(screen.getByText('$1.3M')).toBeInTheDocument();
     expect(screen.getByText('321')).toBeInTheDocument();
@@ -281,6 +284,9 @@ describe('SaleSummaryCard', () => {
     expect(within(card).getByText('9,988')).toBeInTheDocument();
     expect(within(card).getByText(/Fastest to sell out:/)).toHaveTextContent('Section 1 at 00:09');
     expect(within(card).getByText(/Slowest:/)).toHaveTextContent('never sold out');
+    expect(
+      within(card).getByText(/seats were on sale; the other 0 are reserved/),
+    ).toHaveTextContent(/40 unsold: they went back on sale when late holds lapsed/);
 
     await user.click(within(card).getByRole('button', { name: 'Run again' }));
     expect(useSimulationStore.getState().config.seed).toBeGreaterThanOrEqual(0);

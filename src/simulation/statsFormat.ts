@@ -65,6 +65,10 @@ export interface SectionHighlight {
 export interface SaleSummary {
   seatsSold: number;
   sellableSeats: number;
+  // Seats in the venue file that were never on sale.
+  reservedSeats: number;
+  // Seats still on sale when the sale ended.
+  unsoldSeats: number;
   soldPct: number;
   revenue: number;
   soldOutAtMs: number | null;
@@ -107,6 +111,8 @@ export function buildSummary(stats: SimStats): SaleSummary {
   return {
     seatsSold: stats.seats.sold,
     sellableSeats: stats.seats.total - stats.seats.reserved,
+    reservedSeats: stats.seats.reserved,
+    unsoldSeats: stats.seats.available + stats.seats.held,
     soldPct: stats.soldPct,
     revenue: stats.revenue,
     soldOutAtMs: stats.soldOutAtMs,

@@ -106,6 +106,10 @@ export default function SaleStatsPanel() {
             {stats.seats.sold.toLocaleString()} sold · {stats.seats.held.toLocaleString()} held ·{' '}
             {stats.seats.available.toLocaleString()} available
           </p>
+          <p className="text-xs text-gray-600 tabular-nums">
+            {sellable.toLocaleString()} on sale + {stats.seats.reserved.toLocaleString()} reserved
+            (never for sale) = {stats.seats.total.toLocaleString()} seats
+          </p>
         </div>
 
         <dl className="grid grid-cols-2 gap-2">
