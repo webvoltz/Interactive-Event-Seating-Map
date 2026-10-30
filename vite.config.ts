@@ -13,13 +13,21 @@ export default defineConfig({
       reporter: ['text', 'json-summary'],
       reportsDirectory: 'coverage',
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/main.tsx', 'src/interfaces/**', 'src/test/**', '**/*.test.*'],
+      exclude: [
+        'src/main.tsx',
+        'src/interfaces/**',
+        'src/test/**',
+        'src/simulation/fixtures.ts',
+        '**/*.test.*',
+      ],
       // Regression floor, ratcheted up (never down) as coverage improves - see engineering-notes.md.
       thresholds: {
         branches: 55,
         functions: 51,
         lines: 55,
         statements: 54,
+        // The sale engine is held to a much higher bar than the UI around it.
+        'src/simulation/**': { branches: 75, functions: 90, lines: 90, statements: 90 },
       },
     },
   },

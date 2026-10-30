@@ -100,6 +100,11 @@ export function nextDeadline(holds: HoldMap, selectionExpiresAt: number | null):
   return min;
 }
 
+// Lower session id wins a seat both sides claim. Shared by the live cross-tab protocol and the sale simulator.
+export function peerWinsClash(peerId: string, myId: string): boolean {
+  return peerId < myId;
+}
+
 export interface PeerHoldResult {
   holds: HoldMap;
   lostSeatIds: string[];
@@ -129,7 +134,7 @@ export function ingestPeerHold(
 
   for (const seatId of message.seatIds) {
     if (selectedSeats.has(seatId)) {
-      if (message.from < mySessionId) {
+      if (peerWinsClash(message.from, mySessionId)) {
         next.set(seatId, { seatId, owner: message.from, expiresAt: message.expiresAt });
         lostSeatIds.push(seatId);
       } else {

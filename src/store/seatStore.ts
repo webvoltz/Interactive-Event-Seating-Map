@@ -3,8 +3,9 @@ import { persist } from 'zustand/middleware';
 import type { PersistStorage, StorageValue } from 'zustand/middleware';
 import type { HoldMap } from '../interfaces/venue.interfaces';
 import { SELECTION_HOLD_MS, pruneHolds } from '../utils/holdProtocol';
+import { MAX_SELECTABLE_SEATS } from '../utils/selectionLimits';
 
-export const MAX_SELECTABLE_SEATS = 8;
+export { MAX_SELECTABLE_SEATS };
 
 export interface Feedback {
   type: 'info' | 'error';
