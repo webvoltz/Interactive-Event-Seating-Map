@@ -39,6 +39,7 @@ const MAX_CLASH_RETRIES = 6;
 const HEAT_WINDOW_TICKS = 100;
 const CLASH_WINDOW_TICKS = 10;
 const SESSION_ID_WIDTH = 6;
+const QUEUE_RECHECK_MS = 60_000;
 
 export interface SectionStats {
   total: number;
@@ -175,6 +176,8 @@ export class SimulationEngine {
   private queueTail = 0;
   private queueLive = 0;
   private admitTokens = 0;
+  // Admitted buyers who haven't made their first search yet; they will each want seats.
+  private pendingSearch = 0;
 
   private changes: number[] = [];
   private changeTicks: number[] = [];
@@ -469,7 +472,13 @@ export class SimulationEngine {
       this.admitTokens + (this.config.admitPerSec * TICK_MS) / 1000,
       this.config.admitPerSec,
     );
-    while (this.admitTokens >= 1 && this.queueHead < this.queueTail) {
+    // Never let in more people than there are seats for: a real waiting room admits against stock,
+    // otherwise a handful of freed seats would turn thousands of buyers away.
+    while (
+      this.admitTokens >= 1 &&
+      this.queueHead < this.queueTail &&
+      this.pendingSearch < this.book.availableCount
+    ) {
       const buyer = this.queue[this.queueHead] ?? 0;
       this.queueHead += 1;
       if (this.stage[buyer] !== STAGE.QUEUED) continue;
@@ -480,6 +489,7 @@ export class SimulationEngine {
         this.viewerStage = 'admitted';
         continue;
       }
+      this.pendingSearch += 1;
       this.served += 1;
       this.waitTotalMs += this.now - (this.queuedAt[buyer] ?? this.now);
       this.events.push(this.now + this.rng.between(400, 2_500), buyer, EV_SEARCH);
@@ -489,7 +499,12 @@ export class SimulationEngine {
   private handleTimedEvent(kind: number, buyer: number, time: number): void {
     switch (kind) {
       case EV_QUEUE_TIMEOUT:
-        if (this.stage[buyer] === STAGE.QUEUED) {
+        if (this.stage[buyer] !== STAGE.QUEUED) break;
+        if (this.book.availableCount === 0) {
+          // Everything is held, so the waiting room is paused rather than slow: people stay on the
+          // sold-out page hoping a hold lapses, and check back again after a while.
+          this.events.push(time + QUEUE_RECHECK_MS, buyer, EV_QUEUE_TIMEOUT);
+        } else {
           this.stage[buyer] = STAGE.ABANDONED;
           this.queueLive -= 1;
           this.gaveUpInQueue += 1;
@@ -560,6 +575,7 @@ export class SimulationEngine {
     for (const buyer of searchers) {
       const stage = this.stage[buyer];
       if (stage !== STAGE.ADMITTED && stage !== STAGE.SEARCHING) continue;
+      if (stage === STAGE.ADMITTED) this.pendingSearch -= 1;
       this.stage[buyer] = STAGE.SEARCHING;
       const seats = this.findSeatsFor(buyer);
       if (seats) claims.push({ buyer, seats });
